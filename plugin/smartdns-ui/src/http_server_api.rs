@@ -37,6 +37,9 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::process::Stdio;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
 use url::form_urlencoded;
 
 const PASSWORD_CONFIG_KEY: &str = "smartdns-ui.password";
@@ -98,6 +101,12 @@ impl API {
         api.register(Method::GET, "/api/upstream-server", true, APIRoute!(API::api_upstream_server_get_list));
         api.register(Method::GET, "/api/config/settings", true, APIRoute!(API::api_config_get_settings));
         api.register(Method::PUT, "/api/config/settings", true, APIRoute!(API::api_config_set_settings));
+        api.register(Method::GET, "/api/geosite/config", true, APIRoute!(API::api_geosite_get));
+        api.register(Method::PUT, "/api/geosite/config", true, APIRoute!(API::api_geosite_save));
+        api.register(Method::POST, "/api/geosite/update", true, APIRoute!(API::api_geosite_update));
+        api.register(Method::GET, "/api/cloudflare/config", true, APIRoute!(API::api_cloudflare_get));
+        api.register(Method::PUT, "/api/cloudflare/config", true, APIRoute!(API::api_cloudflare_save));
+        api.register(Method::POST, "/api/cloudflare/run", true, APIRoute!(API::api_cloudflare_run));
         api.register(Method::GET, "/api/stats/top/client", true, APIRoute!(API::api_stats_get_top_client));
         api.register(Method::GET, "/api/stats/top/domain", true, APIRoute!(API::api_stats_get_top_domain));
         api.register(Method::GET, "/api/stats/metrics", true, APIRoute!(API::api_stats_get_metrics));
@@ -228,6 +237,84 @@ impl API {
             .insert("Content-Type", "application/json".parse().unwrap());
         *response.status_mut() = code;
         Ok(response)
+    }
+
+    async fn run_manager(path: &str, command: &str, input: Option<Vec<u8>>) -> Result<String, HttpError> {
+        let mut process = Command::new(path);
+        process.arg(command).stdout(Stdio::piped()).stderr(Stdio::piped());
+        if input.is_some() {
+            process.stdin(Stdio::piped());
+        }
+        let mut child = process.spawn().map_err(|e| HttpError::new(
+            StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if let Some(data) = input {
+            let mut stdin = child.stdin.take().unwrap();
+            stdin.write_all(&data).await.map_err(|e| HttpError::new(
+                StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        }
+        let output = child.wait_with_output().await.map_err(|e| HttpError::new(
+            StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let body = String::from_utf8_lossy(&output.stdout).to_string();
+        if !output.status.success() {
+            let message = serde_json::from_str::<serde_json::Value>(&body).ok()
+                .and_then(|json| json["error"].as_str().map(str::to_owned))
+                .unwrap_or_else(|| String::from_utf8_lossy(&output.stderr).to_string());
+            return Err(HttpError::new(StatusCode::BAD_REQUEST, message));
+        }
+        Ok(body)
+    }
+
+    async fn api_geosite_get(
+        _this: Arc<HttpServer>, _param: APIRouteParam, _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        API::response_build(StatusCode::OK, API::run_manager("/usr/lib/smartdns/geosite-manager.py", "show", None).await?)
+    }
+
+    async fn api_geosite_save(
+        _this: Arc<HttpServer>, _param: APIRouteParam, req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let body = req.into_body().collect().await?.to_bytes();
+        if body.len() > 65536 {
+            return API::response_error(StatusCode::PAYLOAD_TOO_LARGE, "GeoSite settings are too large");
+        }
+        let result = API::run_manager("/usr/lib/smartdns/geosite-manager.py", "save", Some(body.to_vec())).await?;
+        Plugin::smartdns_restart();
+        API::response_build(StatusCode::OK, result)
+    }
+
+    async fn api_geosite_update(
+        _this: Arc<HttpServer>, _param: APIRouteParam, _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let result = API::run_manager("/usr/lib/smartdns/geosite-manager.py", "update", None).await?;
+        Plugin::smartdns_restart();
+        API::response_build(StatusCode::OK, result)
+    }
+
+    async fn api_cloudflare_get(
+        _this: Arc<HttpServer>, _param: APIRouteParam, _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        API::response_build(StatusCode::OK,
+            API::run_manager("/usr/lib/smartdns/cloudflare-manager.py", "show", None).await?)
+    }
+
+    async fn api_cloudflare_save(
+        _this: Arc<HttpServer>, _param: APIRouteParam, req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let body = req.into_body().collect().await?.to_bytes();
+        if body.len() > 65536 {
+            return API::response_error(StatusCode::PAYLOAD_TOO_LARGE, "Cloudflare settings are too large");
+        }
+        let result = API::run_manager("/usr/lib/smartdns/cloudflare-manager.py", "save", Some(body.to_vec())).await?;
+        Plugin::smartdns_restart();
+        API::response_build(StatusCode::OK, result)
+    }
+
+    async fn api_cloudflare_run(
+        _this: Arc<HttpServer>, _param: APIRouteParam, _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let result = API::run_manager("/usr/lib/smartdns/cloudflare-manager.py", "run", None).await?;
+        Plugin::smartdns_restart();
+        API::response_build(StatusCode::OK, result)
     }
 
     async fn api_auth_refresh(

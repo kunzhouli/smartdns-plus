@@ -39,6 +39,7 @@ int _config_domain_set(void *data, int argc, char *argv[])
 		{"name", required_argument, NULL, 'n'},
 		{"type", required_argument, NULL, 't'},
 		{"file", required_argument, NULL, 'f'},
+		{"site", required_argument, NULL, 's'},
 		{NULL, 0, NULL, 0}
 	};
 
@@ -56,7 +57,7 @@ int _config_domain_set(void *data, int argc, char *argv[])
 
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:t:f:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:t:f:s:", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -80,13 +81,17 @@ int _config_domain_set(void *data, int argc, char *argv[])
 		case 'f':
 			conf_get_conf_fullpath(optarg, domain_set->file, DNS_MAX_PATH);
 			break;
+		case 's':
+			safe_strncpy(domain_set->site, optarg, sizeof(domain_set->site));
+			break;
 		default:
 			break;
 		}
 	}
 	/* clang-format on */
 
-	if (set_name[0] == 0 || domain_set->file[0] == 0) {
+	if (set_name[0] == 0 || domain_set->file[0] == 0 ||
+		(domain_set->type == DNS_DOMAIN_SET_GEOSITE && domain_set->site[0] == 0)) {
 		tlog(TLOG_ERROR, "invalid parameter.");
 		goto errout;
 	}

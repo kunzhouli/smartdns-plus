@@ -29,6 +29,7 @@
 #include "smartdns/lib/list.h"
 #include "smartdns/lib/radix.h"
 #include "smartdns/proxy.h"
+#include <regex.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -480,6 +481,14 @@ struct dns_conf_domain_rule {
 	art_tree tree;
 };
 
+struct dns_geosite_pattern {
+	struct list_head list;
+	char *value;
+	char key[48];
+	regex_t regex;
+	int type; /* 0: keyword, 1: regular expression */
+};
+
 struct dns_conf_ipset_nftset {
 	int ipset_timeout_enable;
 	struct dns_ipset_names ipset_no_speed;
@@ -495,6 +504,8 @@ struct dns_dns64 {
 struct dns_conf_group {
 	struct hlist_node node;
 	struct dns_conf_domain_rule domain_rule;
+	struct list_head geosite_patterns;
+	unsigned int geosite_pattern_count;
 	struct dns_conf_address_rule address_rule;
 	uint8_t *soa_table;
 	/* === AUTO COPY FIELD BEGIN === */
@@ -605,6 +616,7 @@ struct dns_domain_set_name {
 	struct list_head list;
 	enum dns_domain_set_type type;
 	char file[DNS_MAX_PATH];
+	char site[DNS_MAX_CNAME_LEN];
 };
 
 struct dns_domain_set_name_list {

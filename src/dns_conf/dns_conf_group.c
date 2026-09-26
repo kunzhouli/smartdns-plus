@@ -255,6 +255,25 @@ static int _config_rule_group_setup_value(struct dns_conf_group_info *group_info
 				   offsetof(struct dns_conf_group, copy_data_section_begin));
 		memcpy(group_rule->soa_table, parent_group->soa_table, soa_talbe_size);
 		art_iter(&parent_group->domain_rule.tree, _config_domain_rule_iter_copy, &group_rule->domain_rule.tree);
+		struct dns_geosite_pattern *pattern;
+		list_for_each_entry(pattern, &parent_group->geosite_patterns, list)
+		{
+			struct dns_geosite_pattern *copy = zalloc(1, sizeof(*copy));
+			if (copy == NULL) {
+				return -1;
+			}
+			copy->value = strdup(pattern->value);
+			if (copy->value == NULL ||
+				(copy->value && pattern->type == 1 && regcomp(&copy->regex, copy->value, REG_EXTENDED | REG_NOSUB) != 0)) {
+				free(copy->value);
+				free(copy);
+				return -1;
+			}
+			copy->type = pattern->type;
+			safe_strncpy(copy->key, pattern->key, sizeof(copy->key));
+			list_add_tail(&copy->list, &group_rule->geosite_patterns);
+		}
+		group_rule->geosite_pattern_count = parent_group->geosite_pattern_count;
 		return 0;
 	}
 
@@ -421,6 +440,7 @@ struct dns_conf_group *_config_rule_group_new(const char *group_name)
 
 	INIT_HLIST_NODE(&rule_group->node);
 	art_tree_init(&rule_group->domain_rule.tree);
+	INIT_LIST_HEAD(&rule_group->geosite_patterns);
 
 	rule_group->address_rule.ipv4 = New_Radix();
 	rule_group->address_rule.ipv6 = New_Radix();
@@ -434,7 +454,17 @@ struct dns_conf_group *_config_rule_group_new(const char *group_name)
 
 static void _config_rule_group_remove(struct dns_conf_group *rule_group)
 {
+	struct dns_geosite_pattern *pattern, *tmp;
 	hlist_del_init(&rule_group->node);
+	list_for_each_entry_safe(pattern, tmp, &rule_group->geosite_patterns, list)
+	{
+		list_del(&pattern->list);
+		if (pattern->type == 1) {
+			regfree(&pattern->regex);
+		}
+		free(pattern->value);
+		free(pattern);
+	}
 	art_iter(&rule_group->domain_rule.tree, _config_domain_iter_free, NULL);
 	art_tree_destroy(&rule_group->domain_rule.tree);
 	Destroy_Radix(rule_group->address_rule.ipv4, _config_ip_iter_free, NULL);

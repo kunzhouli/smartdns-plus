@@ -185,6 +185,25 @@ void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *conf,
 	walk_args.args = request_domain_rule;
 	walk_args.rule_index = rule_index;
 
+	/* Keyword and regular-expression entries have no suffix-tree key. Apply
+	 * them before suffix-tree matches, following the normal rule order. */
+	struct dns_geosite_pattern *pattern;
+	list_for_each_entry(pattern, &conf->geosite_patterns, list)
+	{
+		int matches = pattern->type == 0 ? strstr(domain, pattern->value) != NULL :
+			regexec(&pattern->regex, domain, 0, NULL, 0) == 0;
+		if (!matches) {
+			continue;
+		}
+		int key_len = strlen(pattern->key);
+		struct dns_domain_rule *rule = art_search(&conf->domain_rule.tree, (unsigned char *)pattern->key, key_len);
+		if (rule == NULL) {
+			continue;
+		}
+		walk_args.full_key_len = key_len;
+		_dns_server_get_rules((unsigned char *)pattern->key, key_len, 0, rule, &walk_args);
+	}
+
 	/* reverse domain string */
 	domain_len = strlen(domain);
 	if (domain_len >= (int)sizeof(domain_key) - 3) {
@@ -226,6 +245,10 @@ void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *conf,
 		}
 
 		memcpy(matched_key, walk_args.key[i], walk_args.key_len[i]);
+		if (matched_key[0] == '@') {
+			tlog(TLOG_INFO, "RULE-MATCH, type: %d, domain: %s, rule: %s", i, domain, matched_key);
+			continue;
+		}
 
 		matched_key_len--;
 		matched_key[matched_key_len] = 0;

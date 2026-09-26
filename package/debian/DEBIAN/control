@@ -6,4 +6,5 @@ Section: net
 Package: smartdns  
 Priority: extra  
 Architecture: armhf
+Depends: python3, ca-certificates, systemd, libc6, libgcc-s1, zlib1g, libzstd1, libssl3t64 | libssl3
 Description: a smartdns server

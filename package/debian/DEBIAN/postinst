@@ -1,0 +1,44 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+	if [ ! -e /etc/smartdns/geosite.json ]; then
+		printf '%s\n' '{"source":"https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat","github_proxy":"","auto_update":false,"interval_hours":24,"rules":[]}' > /etc/smartdns/geosite.json
+	fi
+	if [ ! -e /etc/smartdns/geosite.conf ]; then
+		printf '%s\n' '# Managed by geosite-manager.py' > /etc/smartdns/geosite.conf
+	fi
+	if [ ! -e /etc/smartdns/cloudflare.json ]; then
+		printf '%s\n' '{"enabled":false,"run_time":"03:00","interval_days":1,"ipv6_enabled":true,"threads":40,"test_url":"https://speed.cloudflare.com/__down?bytes=200000000"}' > /etc/smartdns/cloudflare.json
+	fi
+	if [ ! -e /etc/smartdns/cloudflare.conf ]; then
+		printf '%s\n' '# Managed by cloudflare-manager.py' > /etc/smartdns/cloudflare.conf
+	fi
+	if ! grep -Eq '^conf-file[[:space:]]+/etc/smartdns/geosite.conf([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
+		printf '\nconf-file /etc/smartdns/geosite.conf\n' >> /etc/smartdns/smartdns.conf
+	fi
+	if ! grep -Eq '^conf-file[[:space:]]+/etc/smartdns/cloudflare.conf([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
+		printf 'conf-file /etc/smartdns/cloudflare.conf\n' >> /etc/smartdns/smartdns.conf
+	fi
+	if [ -e /usr/local/lib/smartdns/smartdns_ui.so ]; then
+		if ! grep -Eq '^plugin[[:space:]]+.*smartdns_ui.so([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
+			printf 'plugin /usr/local/lib/smartdns/smartdns_ui.so\n' >> /etc/smartdns/smartdns.conf
+		fi
+		if ! grep -Eq '^smartdns-ui.www-root[[:space:]]+' /etc/smartdns/smartdns.conf; then
+			printf 'smartdns-ui.www-root /usr/share/smartdns/wwwroot\n' >> /etc/smartdns/smartdns.conf
+		fi
+		if ! grep -Eq '^smartdns-ui.ip[[:space:]]+' /etc/smartdns/smartdns.conf; then
+			printf 'smartdns-ui.ip http://127.0.0.1:6080\n' >> /etc/smartdns/smartdns.conf
+		fi
+	fi
+	if command -v systemctl >/dev/null 2>&1; then
+		systemctl daemon-reload || true
+		systemctl enable --now smartdns-geosite-update.timer || true
+		systemctl enable --now smartdns-cloudflare-speedtest.timer || true
+		if [ -z "${2:-}" ]; then
+			systemctl enable --now smartdns.service || true
+		else
+			systemctl try-restart smartdns.service || true
+		fi
+	fi
+fi
+exit 0

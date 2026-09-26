@@ -31,6 +31,76 @@ class DomainSet : public ::testing::Test
 	virtual void TearDown() {}
 };
 
+static std::string geosite_varint(unsigned int value)
+{
+	std::string out;
+	do {
+		unsigned char byte = value & 0x7f;
+		value >>= 7;
+		out.push_back(byte | (value ? 0x80 : 0));
+	} while (value);
+	return out;
+}
+
+static std::string geosite_bytes(unsigned int field, const std::string &value)
+{
+	return geosite_varint(field << 3 | 2) + geosite_varint(value.size()) + value;
+}
+
+static std::string geosite_domain(unsigned int type, const std::string &value, const std::string &attribute = "")
+{
+	std::string domain = geosite_varint(8) + geosite_varint(type) + geosite_bytes(2, value);
+	if (!attribute.empty()) {
+		std::string attr = geosite_bytes(1, attribute) + geosite_varint(16) + geosite_varint(1);
+		domain += geosite_bytes(3, attr);
+	}
+	return geosite_bytes(2, domain);
+}
+
+TEST_F(DomainSet, geosite_domains_and_attributes)
+{
+	smartdns::TempFile file_set;
+	std::string site = geosite_bytes(1, "TEST");
+	site += geosite_domain(2, "root.test");
+	site += geosite_domain(3, "full.test");
+	site += geosite_domain(0, "keyword");
+	site += geosite_domain(1, "^rx[0-9]+\\.test$");
+	site += geosite_domain(2, "ads.test", "ads");
+	ASSERT_TRUE(file_set.Write(geosite_bytes(1, site)));
+
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+	std::string config = "domain-set -name all -type geosite -site test -file " + file_set.GetPath() + "\n";
+	config += "domain-set -name ads -type geosite -site test@ads -file " + file_set.GetPath() + "\n";
+	config += R"""(bind [::]:60053
+server 127.0.0.1:61053
+domain-rules /domain-set:all/ -a 9.9.9.9
+domain-rules /domain-set:ads/ -a 8.8.8.8
+)""";
+	ASSERT_TRUE(server.Start(config));
+	smartdns::Client client;
+	for (const char *domain : {"root.test", "sub.root.test", "full.test", "has-keyword.test", "rx12.test"}) {
+		ASSERT_TRUE(client.Query(domain, 60053));
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "9.9.9.9") << domain;
+	}
+	ASSERT_TRUE(client.Query("ads.test", 60053));
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "8.8.8.8");
+	for (const char *domain : {"sub.full.test", "unmatched.test"}) {
+		ASSERT_TRUE(client.Query(domain, 60053));
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4") << domain;
+	}
+}
+
 TEST_F(DomainSet, set_add)
 {
 	smartdns::MockServer server_upstream;
@@ -141,5 +211,4 @@ domain-rules /domain-set:test-set/ -ipset #4:set2
 	ASSERT_TRUE(client.Query("google.com", 60053));
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 }
-
 

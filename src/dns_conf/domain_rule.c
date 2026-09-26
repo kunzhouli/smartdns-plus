@@ -21,6 +21,7 @@
 #include "cname.h"
 #include "dns_conf_group.h"
 #include "https_record.h"
+#include "geosite.h"
 #include "ipset.h"
 #include "nameserver.h"
 #include "nftset.h"
@@ -32,6 +33,7 @@
 #include "txt_record.h"
 
 #include <getopt.h>
+#include <stdio.h>
 
 static inline uint8_t _get_required_capacity(enum domain_rule type, uint8_t current_capacity)
 {
@@ -456,6 +458,9 @@ static int _config_domain_rule_set_each(const char *domain_set, set_rule_add_fun
 			}
 			break;
 		case DNS_DOMAIN_SET_GEOSITE:
+			if (_config_set_rule_each_from_geosite(set_name_item->file, set_name_item->site, callback, priv) != 0) {
+				return -1;
+			}
 			break;
 		default:
 			tlog(TLOG_WARN, "domain set %s type %d not support.", set_name_list->name, set_name_item->type);
@@ -475,6 +480,53 @@ static int _config_domain_rule_add_callback(const char *domain, void *priv)
 static int _config_setup_domain_key(const char *domain, char *domain_key, int domain_key_max_len, int *domain_key_len,
 									int *root_rule_only, int *sub_rule_only)
 {
+	const char *pattern_value = NULL;
+	int pattern_type = -1;
+	struct dns_geosite_pattern *pattern;
+	struct dns_conf_group *group;
+	if (strncmp(domain, "geosite-keyword:", 16) == 0) {
+		pattern_value = domain + 16;
+		pattern_type = 0;
+	} else if (strncmp(domain, "geosite-regex:", 14) == 0) {
+		pattern_value = domain + 14;
+		pattern_type = 1;
+	}
+	if (pattern_value != NULL) {
+		if (pattern_value[0] == '\0' || (group = _config_current_rule_group()) == NULL) {
+			return -1;
+		}
+		list_for_each_entry(pattern, &group->geosite_patterns, list)
+		{
+			if (pattern->type == pattern_type && strcmp(pattern->value, pattern_value) == 0) {
+				goto pattern_found;
+			}
+		}
+		pattern = zalloc(1, sizeof(*pattern));
+		if (pattern == NULL) {
+			return -1;
+		}
+		pattern->value = strdup(pattern_value);
+		if (pattern->value == NULL ||
+			(pattern_type == 1 && regcomp(&pattern->regex, pattern_value, REG_EXTENDED | REG_NOSUB) != 0)) {
+			tlog(TLOG_ERROR, "invalid geosite pattern: %s", pattern_value);
+			free(pattern->value);
+			free(pattern);
+			return -1;
+		}
+		pattern->type = pattern_type;
+		group->geosite_pattern_count++;
+		snprintf(pattern->key, sizeof(pattern->key), "@geosite-%u", group->geosite_pattern_count);
+		list_add_tail(&pattern->list, &group->geosite_patterns);
+	pattern_found:
+		if ((int)strlen(pattern->key) + 1 > domain_key_max_len) {
+			return -1;
+		}
+		safe_strncpy(domain_key, pattern->key, domain_key_max_len);
+		*domain_key_len = strlen(pattern->key);
+		if (root_rule_only) *root_rule_only = 0;
+		if (sub_rule_only) *sub_rule_only = 0;
+		return 0;
+	}
 	int tmp_root_rule_only = 0;
 	int tmp_sub_rule_only = 0;
 	int domain_len = 0;

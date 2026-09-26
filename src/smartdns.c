@@ -19,6 +19,7 @@
 #define _GNU_SOURCE
 
 #include "smartdns/smartdns.h"
+#include "dns_conf/geosite.h"
 
 #include "smartdns/lib/art.h"
 #include "smartdns/lib/atomic.h"
@@ -82,6 +83,7 @@ static void _help(void)
 		"  -N [file]     dump dns packet to file.\n"
 #endif
 		"  --cache-print [file]  print cache.\n"
+		"  --check-geosite [file] [site]  validate a geosite database and optional category.\n"
 		"  --is-quic-supported   is quic http3 supported.\n"
 		""
 
@@ -1132,6 +1134,7 @@ int smartdns_main(int argc, char *argv[])
 
 	static struct option long_options[] = {{"cache-print", required_argument, NULL, 256},
 										   {"is-quic-supported", no_argument, NULL, 257},
+										   {"check-geosite", required_argument, NULL, 258},
 										   {"help", no_argument, NULL, 'h'},
 										   {NULL, 0, NULL, 0}};
 
@@ -1202,6 +1205,11 @@ int smartdns_main(int argc, char *argv[])
 			}
 			return 0;
 			break;
+		case 258:
+			if (geosite_check_file(optarg) != 0) {
+				return 1;
+			}
+			return optind < argc && geosite_check_site(optarg, argv[optind]) != 0 ? 1 : 0;
 		default:
 			fprintf(stderr, "unknown option, please run %s -h for help.\n", argv[0]);
 			return 1;

@@ -1,0 +1,9 @@
+[Unit]
+Description=Select fast Cloudflare IPs for SmartDNS
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=12min
+ExecStart=/usr/lib/smartdns/cloudflare-scheduled

@@ -51,10 +51,43 @@ build()
 	sed -i "s/Version:.*/Version: ${pkgver}/" $ROOT/DEBIAN/control
 	sed -i "s/Architecture:.*/Architecture: $ARCH/" $ROOT/DEBIAN/control
 	chmod 0755 $ROOT/DEBIAN/prerm
+	chmod 0755 $ROOT/DEBIAN/postinst
 
 	cp $SMARTDNS_DIR/etc/smartdns/smartdns.conf  $ROOT/etc/smartdns/
 	cp $SMARTDNS_DIR/etc/default/smartdns  $ROOT/etc/default/
 	cp $SMARTDNS_DIR/systemd/smartdns.service $ROOT/lib/systemd/system/ 
+	mkdir -p $ROOT/usr/lib/smartdns
+	cp $CURR_DIR/geosite-manager.py $ROOT/usr/lib/smartdns/
+	cp $CURR_DIR/geosite-scheduled $ROOT/usr/lib/smartdns/
+	chmod 0755 $ROOT/usr/lib/smartdns/geosite-manager.py $ROOT/usr/lib/smartdns/geosite-scheduled
+	cp $CURR_DIR/geosite-update.service $ROOT/lib/systemd/system/smartdns-geosite-update.service
+	cp $CURR_DIR/geosite-update.timer $ROOT/lib/systemd/system/smartdns-geosite-update.timer
+	cp $CURR_DIR/cloudflare-manager.py $ROOT/usr/lib/smartdns/
+	cp $CURR_DIR/cloudflare-scheduled $ROOT/usr/lib/smartdns/
+	chmod 0755 $ROOT/usr/lib/smartdns/cloudflare-manager.py $ROOT/usr/lib/smartdns/cloudflare-scheduled
+	cp $CURR_DIR/cloudflare-speedtest.service $ROOT/lib/systemd/system/smartdns-cloudflare-speedtest.service
+	cp $CURR_DIR/cloudflare-speedtest.timer $ROOT/lib/systemd/system/smartdns-cloudflare-speedtest.timer
+	case "$ARCH" in
+		amd64) CFST_ARCH=amd64; CFST_SHA=c4c8fc76b4e1bf2bdb5ced8b765956d82dda7bc4eb59df5c04053f0f7db98d90 ;;
+		arm64) CFST_ARCH=arm64; CFST_SHA=0ac992fcf24d4684caed33620deb9b83ce82f32d2418dc1f90be490ce5900300 ;;
+		armhf) CFST_ARCH=armv7; CFST_SHA=73386234fe07a766071709859168e19b37f6878345317ccaa992efe35f4ef5f0 ;;
+		*) echo "Unsupported CloudflareSpeedTest Debian architecture: $ARCH"; return 1 ;;
+	esac
+	CFST_ARCHIVE="$WORKDIR/cfst-v2.3.5-linux-$CFST_ARCH.tar.gz"
+	if [ ! -s "$CFST_ARCHIVE" ]; then
+		CFST_URL="https://github.com/XIU2/CloudflareSpeedTest/releases/download/v2.3.5/cfst_linux_$CFST_ARCH.tar.gz"
+		if [ -n "$SMARTDNS_GITHUB_PROXY" ]; then
+			CFST_URL="${SMARTDNS_GITHUB_PROXY%/}/$CFST_URL"
+		fi
+		wget -q -O "$CFST_ARCHIVE" "$CFST_URL" || return 1
+	fi
+	printf '%s  %s\n' "$CFST_SHA" "$CFST_ARCHIVE" | sha256sum -c - || return 1
+	tar -xOzf "$CFST_ARCHIVE" "cfst_linux_$CFST_ARCH/cfst" > "$ROOT/usr/lib/smartdns/cfst" || return 1
+	chmod 0755 "$ROOT/usr/lib/smartdns/cfst"
+	mkdir -p "$ROOT/usr/share/doc/smartdns"
+	cp /usr/share/common-licenses/GPL-3 "$ROOT/usr/share/doc/smartdns/CloudflareSpeedTest.LICENSE" || return 1
+	cp "$CURR_DIR/CloudflareSpeedTest.NOTICE" "$ROOT/usr/share/doc/smartdns/" || return 1
+	cp "$CURR_DIR/DEBIAN/copyright" "$ROOT/usr/share/doc/smartdns/copyright" || return 1
 
 	if [ $IS_BUILD_SMARTDNS_UI -eq 1 ]; then
 		mkdir $ROOT/usr/local/lib/smartdns -p
@@ -70,9 +103,17 @@ build()
 			echo "Failed to copy smartdns-ui plugin."
 			return 1
 		fi
+		cat >> $ROOT/etc/smartdns/smartdns.conf <<'EOF'
+
+# Debian Web UI
+plugin /usr/local/lib/smartdns/smartdns_ui.so
+smartdns-ui.www-root /usr/share/smartdns/wwwroot
+smartdns-ui.ip http://127.0.0.1:6080
+EOF
 	else
 		echo "smartdns-ui plugin not found, skipping copy."
 	fi
+	printf '\n# Debian GeoSite and Cloudflare rules (managed by Web UI)\nconf-file /etc/smartdns/geosite.conf\nconf-file /etc/smartdns/cloudflare.conf\n' >> $ROOT/etc/smartdns/smartdns.conf
 
 	$SMARTDNS_CP $ROOT
 	if [ $? -ne 0 ]; then
@@ -81,7 +122,7 @@ build()
 	fi
 	chmod +x $ROOT/usr/sbin/smartdns 2>/dev/null
 
-	dpkg -b $ROOT $OUTPUTDIR/smartdns.$VER.$FILEARCH.deb
+	dpkg-deb --root-owner-group -b $ROOT $OUTPUTDIR/smartdns.$VER.$FILEARCH.deb
 
 	rm -fr $ROOT/
 }

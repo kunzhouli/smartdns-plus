@@ -69,12 +69,6 @@ ifneq ($(CARGO_BUILD_TARGET),)
   ARCH_TARGET_PATH=$(CARGO_BUILD_TARGET)/
 endif
 
-# check and install bindgen
-IS_BINDGEN_INSTALL=$(shell which bindgen 2>/dev/null)
-ifeq ($(IS_BINDGEN_INSTALL),)
-  $(shell cargo install --force --locked bindgen-cli)
-endif
-
 ifneq ($(CARGO_BUILD_TARGET),)
   CARGO_BUILD_TARGET_INSTALL=$(shell rustup target list | grep $(CARGO_BUILD_TARGET) | grep installed)
   ifeq ($(CARGO_BUILD_TARGET_INSTALL),)

@@ -7,7 +7,8 @@ VER="`date +"1.%Y.%m.%d-%H%M"`"
 CODE_DIR="$CURR_DIR/.."
 IS_BUILD_SMARTDNS=1
 OUTPUTDIR=$CURR_DIR
-SMARTDNS_WEBUI_URL="https://github.com/pymumu/smartdns-webui/archive/refs/heads/main.zip"
+SMARTDNS_WEBUI_REV="1c06fee693434ec7c71f06010d3f87416baba9f0"
+SMARTDNS_WEBUI_URL="https://github.com/pymumu/smartdns-webui/archive/${SMARTDNS_WEBUI_REV}.zip"
 SMARTDNS_WEBUI_SOURCE="$WORKDIR/smartdns-webui"
 SMARTDNS_STATIC_DIR="$WORKDIR/smartdns-static"
 SMARTDNS_WITH_LIBS=0
@@ -282,9 +283,13 @@ build_smartdns()
 
 build_webpages()
 {
-	if [ ! -f "$WORKDIR/smartdns-webui.zip" ]; then
+	if [ -d "$SMARTDNS_WEBUI_SOURCE" ] && [ "$(cat "$SMARTDNS_WEBUI_SOURCE/.smartdns-source-rev" 2>/dev/null)" != "$SMARTDNS_WEBUI_REV" ] && [ "$(git -C "$SMARTDNS_WEBUI_SOURCE" rev-parse HEAD 2>/dev/null)" != "$SMARTDNS_WEBUI_REV" ]; then
+		rm -rf "$SMARTDNS_WEBUI_SOURCE"
+	fi
+
+	if [ ! -f "$WORKDIR/smartdns-webui-$SMARTDNS_WEBUI_REV.zip" ] && [ ! -d "$SMARTDNS_WEBUI_SOURCE" ]; then
 		echo "smartdns-webui source not found, downloading..."
-		wget -O $WORKDIR/smartdns-webui.zip $SMARTDNS_WEBUI_URL
+		wget -O "$WORKDIR/smartdns-webui-$SMARTDNS_WEBUI_REV.zip" "$SMARTDNS_WEBUI_URL"
 		if [ $? -ne 0 ]; then
 			echo "Failed to download smartdns-webui source at $SMARTDNS_WEBUI_URL"
 			return 1
@@ -293,16 +298,17 @@ build_webpages()
 
 	if [ ! -d "$SMARTDNS_WEBUI_SOURCE" ]; then
 		echo "smartdns-webui source not found, unzipping..."
-		unzip -q $WORKDIR/smartdns-webui.zip -d $WORKDIR
+		unzip -q "$WORKDIR/smartdns-webui-$SMARTDNS_WEBUI_REV.zip" -d "$WORKDIR"
 		if [ $? -ne 0 ]; then
 			echo "Failed to unzip smartdns-webui source."
 			return 1
 		fi
-		mv $WORKDIR/smartdns-webui-main $SMARTDNS_WEBUI_SOURCE
+		mv $WORKDIR/smartdns-webui-$SMARTDNS_WEBUI_REV $SMARTDNS_WEBUI_SOURCE
 		if [ $? -ne 0 ]; then
 			echo "Failed to rename smartdns-webui directory."
 			return 1
 		fi
+		echo "$SMARTDNS_WEBUI_REV" > "$SMARTDNS_WEBUI_SOURCE/.smartdns-source-rev"
 	fi
 
 	if [ ! -d "$SMARTDNS_WEBUI_SOURCE" ]; then
@@ -315,13 +321,15 @@ build_webpages()
 		return 1
 	fi
 
-	if [ -f "$SMARTDNS_WEBUI_SOURCE/out/index.html" ]; then
-		echo "smartdns-webui already built, skipping build."
-		return 0
-	fi
+	# The frontend is maintained upstream; apply the Debian GeoSite UI overlay.
+	cp -a "$CURR_DIR/webui-overrides/." "$SMARTDNS_WEBUI_SOURCE/" || return 1
 
 	echo "Building smartdns-webui..."
-	npm install --prefix $SMARTDNS_WEBUI_SOURCE
+	if [ -f "$SMARTDNS_WEBUI_SOURCE/package-lock.json" ]; then
+		npm ci --prefix "$SMARTDNS_WEBUI_SOURCE"
+	else
+		npm install --prefix "$SMARTDNS_WEBUI_SOURCE"
+	fi
 	if [ $? -ne 0 ]; then
 		echo "Failed to install smartdns-webui dependencies."
 		return 1

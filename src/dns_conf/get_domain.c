@@ -61,7 +61,9 @@ int _get_domain(char *value, char *domain, int max_domain_size, char **ptr_after
 	}
 
 	size_t domain_len = max_domain_size;
-	if (strncmp(begin, "domain-set:", sizeof("domain-set:") - 1) == 0) {
+	if (strncmp(begin, "domain-set:", sizeof("domain-set:") - 1) == 0 ||
+		strncmp(begin, "geosite-keyword:", sizeof("geosite-keyword:") - 1) == 0 ||
+		strncmp(begin, "geosite-regex:", sizeof("geosite-regex:") - 1) == 0) {
 		memcpy(domain, begin, len);
 		domain_len = len;
 	} else {
