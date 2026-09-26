@@ -122,7 +122,7 @@ EOF
 	fi
 	chmod +x $ROOT/usr/sbin/smartdns 2>/dev/null
 
-	dpkg-deb --root-owner-group -b $ROOT $OUTPUTDIR/smartdns.$VER.$FILEARCH.deb
+	dpkg-deb --root-owner-group -b $ROOT $OUTPUTDIR/smartdns.$VER.$FILEARCH.deb || return 1
 
 	rm -fr $ROOT/
 }

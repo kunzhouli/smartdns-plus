@@ -34,11 +34,8 @@ if [ "$1" = configure ]; then
 		systemctl daemon-reload || true
 		systemctl enable --now smartdns-geosite-update.timer || true
 		systemctl enable --now smartdns-cloudflare-speedtest.timer || true
-		if [ -z "${2:-}" ]; then
-			systemctl enable --now smartdns.service || true
-		else
-			systemctl try-restart smartdns.service || true
-		fi
+		systemctl enable smartdns.service || true
+		systemctl restart smartdns.service || true
 	fi
 fi
 exit 0
