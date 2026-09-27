@@ -201,11 +201,11 @@ def main():
     if len(sys.argv) != 2 or sys.argv[1] not in ("show", "save", "run", "scheduled"):
         raise ValueError("Usage: cloudflare-manager.py show|save|run|scheduled")
     ROOT.mkdir(mode=0o755, parents=True, exist_ok=True)
+    if sys.argv[1] == "show":
+        return status()
     with LOCK.open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         command = sys.argv[1]
-        if command == "show":
-            return status()
         if command == "save":
             config = validate(json.load(sys.stdin))
             atomic_write(RULES, rule_text(config, read_state()))

@@ -1,7 +1,11 @@
 """Tests for Debian Cloudflare response alias generation."""
 
 import importlib.util
+import fcntl
 import ipaddress
+import os
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -77,6 +81,17 @@ class CloudflareManagerTest(unittest.TestCase):
             manager.speedtest(networks, 4, 40, str(manager.ROOT))
         args = run.call_args.args[0]
         self.assertNotIn("-url", args)
+
+    def test_status_remains_available_during_speed_test(self):
+        lock_path = manager.ROOT / "cloudflare.lock"
+        with lock_path.open("a+b") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            result = subprocess.run(
+                [sys.executable, str(SOURCE), "show"],
+                env={**os.environ, "SMARTDNS_CFPATH": str(manager.ROOT)},
+                capture_output=True, text=True, timeout=2, check=True,
+            )
+        self.assertIn('"enabled": false', result.stdout)
 
 
 if __name__ == "__main__":
