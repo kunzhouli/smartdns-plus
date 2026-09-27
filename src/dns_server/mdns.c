@@ -47,7 +47,7 @@ void _dns_server_need_append_mdns_local_cname(struct dns_request *request)
 
 void _dns_server_mdns_query_setup_server_group(struct dns_request *request, const char **group_name)
 {
-	if (request->is_mdns_lookup == 0 || group_name == NULL) {
+	if (request->strict_nameserver_group || request->is_mdns_lookup == 0 || group_name == NULL) {
 		return;
 	}
 
@@ -59,6 +59,9 @@ void _dns_server_mdns_query_setup_server_group(struct dns_request *request, cons
 int _dns_server_mdns_query_setup(struct dns_request *request, const char *server_group_name, char **request_domain,
 								 char *domain_buffer, int domain_buffer_len)
 {
+	if (request->strict_nameserver_group) {
+		return 0;
+	}
 
 	if (dns_conf.mdns_lookup != 1) {
 		return 0;

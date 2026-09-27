@@ -20,6 +20,104 @@
 #include "domain_rule.h"
 #include "get_domain.h"
 #include "server_group.h"
+#include <strings.h>
+
+int _config_priority_nameserver(void *data, int argc, char *argv[])
+{
+	struct dns_priority_nameserver_rule *rule;
+	const char *pattern;
+	size_t len;
+	(void)data;
+	if (argc != 3 || argv[1][0] != '/' || (len = strlen(argv[1])) < 3 || argv[1][len - 1] != '/' ||
+		argv[2][0] == '\0' || strlen(argv[2]) >= DNS_GROUP_NAME_LEN ||
+		strspn(argv[2], "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-") != strlen(argv[2])) {
+		return -1;
+	}
+	rule = calloc(1, sizeof(*rule));
+	if (rule == NULL) {
+		return -1;
+	}
+	rule->pattern = strndup(argv[1] + 1, len - 2);
+	if (rule->pattern == NULL) {
+		free(rule);
+		return -1;
+	}
+	pattern = rule->pattern;
+	if (strncmp(pattern, "regex:", 6) == 0) {
+		rule->match_type = 3;
+		pattern += 6;
+	} else if (strncmp(pattern, "*.", 2) == 0) {
+		rule->match_type = 1;
+		pattern += 2;
+	} else if (strncmp(pattern, "-.", 2) == 0) {
+		rule->match_type = 2;
+		pattern += 2;
+	}
+	if (*pattern == '\0' || strchr(pattern, '/') != NULL) {
+		free(rule->pattern);
+		free(rule);
+		return -1;
+	}
+	if (rule->match_type == 3 && regcomp(&rule->regex, pattern, REG_EXTENDED | REG_NOSUB | REG_ICASE) != 0) {
+		free(rule->pattern);
+		free(rule);
+		return -1;
+	}
+	if (pattern != rule->pattern) {
+		memmove(rule->pattern, pattern, strlen(pattern) + 1);
+	}
+	rule->nameserver.group_name = _dns_conf_get_group_name(argv[2]);
+	if (rule->nameserver.group_name == NULL) {
+		if (rule->match_type == 3) {
+			regfree(&rule->regex);
+		}
+		free(rule->pattern);
+		free(rule);
+		return -1;
+	}
+	list_add_tail(&rule->list, &dns_conf.priority_nameservers);
+	return 0;
+}
+
+const struct dns_nameserver_rule *_config_priority_nameserver_match(const char *domain)
+{
+	struct dns_priority_nameserver_rule *rule;
+	size_t domain_len = strlen(domain);
+	list_for_each_entry(rule, &dns_conf.priority_nameservers, list)
+	{
+		size_t pattern_len = strlen(rule->pattern);
+		if (rule->match_type == 3) {
+			if (regexec(&rule->regex, domain, 0, NULL, 0) == 0) {
+				return &rule->nameserver;
+			}
+			continue;
+		}
+		if (domain_len < pattern_len || strcasecmp(domain + domain_len - pattern_len, rule->pattern) != 0) {
+			continue;
+		}
+		if (domain_len == pattern_len && rule->match_type != 1) {
+			return &rule->nameserver;
+		}
+		if (domain_len > pattern_len && domain[domain_len - pattern_len - 1] == '.' && rule->match_type != 2) {
+			return &rule->nameserver;
+		}
+	}
+	return NULL;
+}
+
+void _config_priority_nameserver_destroy(void)
+{
+	struct dns_priority_nameserver_rule *rule, *next;
+	list_for_each_entry_safe(rule, next, &dns_conf.priority_nameservers, list)
+	{
+		list_del(&rule->list);
+		if (rule->match_type == 3) {
+			regfree(&rule->regex);
+		}
+		free(rule->pattern);
+		free(rule);
+	}
+}
 
 int _conf_domain_rule_nameserver(const char *domain, const char *group_name)
 {

@@ -294,6 +294,7 @@ struct dns_query_struct {
 	DECLARE_HASHTABLE(replied_map, 4);
 
 	pthread_mutex_t lock;
+	int strict_group;
 };
 
 extern struct dns_client client;

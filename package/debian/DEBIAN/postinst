@@ -19,6 +19,14 @@ if [ "$1" = configure ]; then
 	if [ ! -e /etc/smartdns/domain-routes.conf ]; then
 		printf '%s\n' '# Managed by domain-routes-manager.py; edit through the Web UI.' > /etc/smartdns/domain-routes.conf
 	fi
+	# Migrate existing Web UI rules to the priority directive before restarting.
+	if grep -q '^# Managed by domain-routes-manager.py;' /etc/smartdns/domain-routes.conf && \
+		grep -q '^domain-rules /' /etc/smartdns/domain-routes.conf; then
+		if ! migration_result=$(/usr/lib/smartdns/domain-routes-manager.py save < /etc/smartdns/domain-routes.json); then
+			printf 'Could not migrate domain routing rules: %s\n' "$migration_result" >&2
+			exit 1
+		fi
+	fi
 	if [ ! -e /etc/smartdns/cloudflare.json ]; then
 		printf '%s\n' '{"enabled":false,"run_time":"03:00","interval_days":1,"ipv6_enabled":true,"threads":40}' > /etc/smartdns/cloudflare.json
 	fi

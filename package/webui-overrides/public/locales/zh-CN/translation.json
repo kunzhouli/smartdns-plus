@@ -205,5 +205,7 @@
   "Domain rules saved.": "域名规则已保存。",
   "Managed groups": "页面管理的服务器组",
   "Run at (server time)": "运行时间（服务器时间）",
-  "Route a domain to an existing DNS server group. A plain domain matches it and its subdomains; *.example.com matches subdomains only; -.example.com matches the exact domain only.": "将域名分流到已有 DNS 服务器组。普通域名匹配自身及子域名；*.example.com 仅匹配子域名；-.example.com 仅匹配域名自身。"
+  "Route a domain to an existing DNS server group. A plain domain matches it and its subdomains; *.example.com matches subdomains only; -.example.com matches the exact domain only.": "将域名分流到已有 DNS 服务器组。普通域名匹配自身及子域名；*.example.com 仅匹配子域名；-.example.com 仅匹配域名自身。",
+  "Custom rules have highest priority and are checked from top to bottom. A plain domain matches it and its subdomains; *.example.com matches subdomains only; -.example.com matches the exact domain only. Use regex:^api[0-9]+\\.example\\.com$ for a POSIX regular expression. Matching queries only use the selected DNS group and fail if it is unavailable.": "自定义规则优先级最高，按列表顺序匹配，首条命中生效。普通域名匹配自身和子域名；*.example.com 仅匹配子域名；-.example.com 仅匹配域名自身。可用 regex:^api[0-9]+\\.example\\.com$ 编写 POSIX 正则表达式。命中的查询只使用指定 DNS 组；该组不可用时查询失败。",
+  "Domain or regular expression": "域名或正则表达式"
 }

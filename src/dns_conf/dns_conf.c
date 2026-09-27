@@ -194,6 +194,7 @@ static struct config_item _config_item[] = {
 	CONF_YESNO("mdns-lookup", &dns_conf.mdns_lookup),
 	CONF_YESNO("local-ptr-enable", &dns_conf.local_ptr_enable),
 	CONF_CUSTOM("nameserver", _config_nameserver, NULL),
+	CONF_CUSTOM("priority-nameserver", _config_priority_nameserver, NULL),
 	CONF_YESNO("expand-ptr-from-address", &dns_conf.expand_ptr_from_address),
 	CONF_CUSTOM("address", _config_address, NULL),
 	CONF_CUSTOM("cname", _config_cname, NULL),
@@ -355,6 +356,7 @@ const char *dns_conf_get_data_dir(void)
 
 static int _dns_server_load_conf_init(void)
 {
+	INIT_LIST_HEAD(&dns_conf.priority_nameservers);
 	dns_conf.client_rule.rule = New_Radix();
 	if (dns_conf.client_rule.rule == NULL) {
 		tlog(TLOG_WARN, "init client rule radix tree failed.");
@@ -382,6 +384,7 @@ static int _dns_server_load_conf_init(void)
 
 void dns_server_load_exit(void)
 {
+	_config_priority_nameserver_destroy();
 	_config_rule_group_destroy();
 	_config_client_rule_destroy();
 	_config_ipset_table_destroy();

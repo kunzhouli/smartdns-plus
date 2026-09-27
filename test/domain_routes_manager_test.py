@@ -23,9 +23,18 @@ class DomainRoutesManagerTest(unittest.TestCase):
         ]})
         self.assertEqual(config["rules"][0]["domain"], "example.com")
         text = manager.render(config).decode()
-        self.assertIn("domain-rules /example.com/ -nameserver overseas", text)
-        self.assertIn("domain-rules /*.internal.example/ -nameserver lan", text)
-        self.assertIn("domain-rules /-.root.example/ -nameserver special", text)
+        self.assertIn("priority-nameserver /example.com/ overseas", text)
+        self.assertIn("priority-nameserver /*.internal.example/ lan", text)
+        self.assertIn("priority-nameserver /-.root.example/ special", text)
+
+    def test_regex_rules(self):
+        domain = r"regex:^api[0-9]+\.example\.com$"
+        config = manager.validate({"rules": [{"domain": domain, "group": "overseas"}]})
+        self.assertIn(r"priority-nameserver /regex:^api[0-9]+\\.example\\.com$/ overseas",
+                      manager.render(config).decode())
+        for invalid in ("regex:(", "regex:^bad/name$", "regex:^bad name$", "regex:"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                manager.validate({"rules": [{"domain": invalid, "group": "g"}]})
 
     def test_rejects_injection_and_duplicates(self):
         for domain in ("a/b", "bad name", "#comment", "example..com", "*.example.com\nserver 1.1.1.1"):
@@ -48,7 +57,18 @@ class DomainRoutesManagerTest(unittest.TestCase):
             shown = subprocess.run([sys.executable, str(SOURCE), "show"],
                                    text=True, capture_output=True, env=env, check=True)
             self.assertEqual(json.loads(shown.stdout), data)
-            self.assertIn("-nameserver fast", (Path(root) / "domain-routes.conf").read_text())
+            self.assertIn("priority-nameserver /example.com/ fast", (Path(root) / "domain-routes.conf").read_text())
+
+    def test_save_replaces_legacy_managed_rules(self):
+        with tempfile.TemporaryDirectory() as root:
+            import os
+            env = {**os.environ, "SMARTDNS_DOMAIN_ROUTES_PATH": root}
+            data = {"rules": [{"domain": "example.com", "group": "fast"}]}
+            (Path(root) / "domain-routes.conf").write_bytes(
+                manager.HEADER + b"domain-rules /example.com/ -nameserver fast\n")
+            subprocess.run([sys.executable, str(SOURCE), "save"], input=json.dumps(data),
+                           text=True, capture_output=True, env=env, check=True)
+            self.assertEqual((Path(root) / "domain-routes.conf").read_bytes(), manager.render(data))
 
 
 if __name__ == "__main__":

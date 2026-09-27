@@ -36,27 +36,42 @@ def validate(raw):
         domain, group = entry["domain"], entry["group"]
         if not isinstance(domain, str) or not isinstance(group, str):
             raise ValueError("Domain and nameserver group must be text")
-        domain = domain.strip().lower().rstrip(".")
-        if domain.startswith(("*.", "-.")):
-            name = domain[2:]
+        domain = domain.strip()
+        if domain.startswith("regex:"):
+            expression = domain[6:]
+            if (not expression or len(expression) > 240 or "/" in expression
+                    or any(c.isspace() for c in expression)
+                    or "(?" in expression or re.search(r"\\[A-Za-z0-9]", expression)):
+                raise ValueError(f"Invalid regular expression: {domain}")
+            try:
+                re.compile(expression)
+            except re.error as error:
+                raise ValueError(f"Invalid regular expression: {error}") from error
         else:
-            name = domain
-        if not name or len(name) > 253 or any(not LABEL.fullmatch(label) for label in name.split(".")):
-            raise ValueError(f"Invalid domain: {domain}")
-        if not GROUP.fullmatch(group) or group in ("default", "-"):
+            domain = domain.lower().rstrip(".")
+            if domain.startswith(("*.", "-.")):
+                name = domain[2:]
+            else:
+                name = domain
+            if not name or len(name) > 253 or any(not LABEL.fullmatch(label) for label in name.split(".")):
+                raise ValueError(f"Invalid domain: {domain}")
+        if not GROUP.fullmatch(group) or len(group) >= 32 or group in ("default", "-"):
             raise ValueError(f"Invalid nameserver group: {group}")
-        if domain in seen:
+        duplicate_key = domain.lower()
+        if duplicate_key in seen:
             raise ValueError(f"Duplicate domain: {domain}")
-        seen.add(domain)
+        seen.add(duplicate_key)
         cleaned.append({"domain": domain, "group": group})
     return {"rules": cleaned}
 
 
 def render(config):
-    return HEADER + "".join(
-        f"domain-rules /{rule['domain']}/ -nameserver {rule['group']}\n"
-        for rule in config["rules"]
-    ).encode()
+    lines = []
+    for rule in config["rules"]:
+        # The SmartDNS configuration parser consumes one level of backslashes.
+        pattern = rule["domain"].replace("\\", "\\\\")
+        lines.append(f"priority-nameserver /{pattern}/ {rule['group']}\n")
+    return HEADER + "".join(lines).encode()
 
 
 def atomic_write(path, data):

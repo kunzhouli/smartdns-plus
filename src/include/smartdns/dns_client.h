@@ -73,6 +73,7 @@ typedef enum dns_server_security_status {
 #define DNS_QUEY_OPTION_ECS_DNS (1 << 0)
 #define DNS_QUEY_OPTION_ECS_IP (1 << 1)
 #define DNS_QUEY_OPTION_EDNS0_DO (1 << 2)
+#define DNS_QUEY_OPTION_STRICT_GROUP (1 << 3)
 
 int dns_client_init(void);
 

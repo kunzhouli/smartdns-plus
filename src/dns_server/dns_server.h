@@ -407,6 +407,7 @@ struct dns_request {
 
 	uint64_t query_timestamp;
 	int query_time;
+	int strict_nameserver_group;
 };
 
 /* dns server data */

@@ -390,7 +390,7 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 		}
 
 		/* fallback group exists, use fallback group */
-		if (atomic_read(&query->retry_count) == 1) {
+		if (!query->strict_group && atomic_read(&query->retry_count) == 1) {
 			struct dns_server_group *fallback_server_group = _dns_client_get_group("fallback");
 			if (fallback_server_group != NULL) {
 				query->server_group = fallback_server_group;
@@ -492,7 +492,12 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 	query->qtype = qtype;
 	query->send_tick = 0;
 	query->has_result = 0;
-	query->server_group = _dns_client_get_dnsserver_group(group_name);
+	query->strict_group = (options->enable_flag & DNS_QUEY_OPTION_STRICT_GROUP) != 0;
+	query->server_group = query->strict_group ? _dns_client_get_group(group_name) :
+		_dns_client_get_dnsserver_group(group_name);
+	if (query->strict_group && query->server_group && list_empty(&query->server_group->head)) {
+		query->server_group = NULL;
+	}
 	if (query->server_group == NULL) {
 		tlog(TLOG_ERROR, "get dns server group %s failed.", group_name);
 		goto errout;

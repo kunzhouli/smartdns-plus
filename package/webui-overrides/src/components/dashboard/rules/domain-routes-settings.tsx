@@ -40,12 +40,12 @@ export function DomainRoutesSettings(): React.JSX.Element {
   };
 
   return <Stack spacing={2} sx={{ maxWidth: 850 }}>
-    <Typography variant="body2">{t('Route a domain to an existing DNS server group. A plain domain matches it and its subdomains; *.example.com matches subdomains only; -.example.com matches the exact domain only.')}</Typography>
+    <Typography variant="body2">{t(String.raw`Custom rules have highest priority and are checked from top to bottom. A plain domain matches it and its subdomains; *.example.com matches subdomains only; -.example.com matches the exact domain only. Use regex:^api[0-9]+\.example\.com$ for a POSIX regular expression. Matching queries only use the selected DNS group and fail if it is unavailable.`)}</Typography>
     {groups.length > 0 ? <Typography variant="body2">{t('Managed groups')}: {groups.join(', ')}</Typography> : null}
     {error ? <Alert severity="error">{error}</Alert> : null}
     {message ? <Alert severity="success">{message}</Alert> : null}
     {config.rules.map((rule, index) => <Stack key={index} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="center">
-      <TextField label={t('Domain')} value={rule.domain} onChange={(event) => changeRule(index, 'domain', event.target.value)} placeholder="example.com" fullWidth />
+      <TextField label={t('Domain or regular expression')} value={rule.domain} onChange={(event) => changeRule(index, 'domain', event.target.value)} placeholder="example.com" fullWidth />
       <Autocomplete freeSolo options={groups} inputValue={rule.group}
         onInputChange={(_, value) => changeRule(index, 'group', value)}
         renderInput={(params) => <TextField {...params} label={t('Nameserver group')} />}

@@ -30,6 +30,7 @@
 #include "request_pending.h"
 #include "rules.h"
 #include "soa.h"
+#include "../dns_conf/nameserver.h"
 
 #include "smartdns/dns_plugin.h"
 #include "smartdns/dns_stats.h"
@@ -825,6 +826,12 @@ struct dns_request *_dns_server_new_child_request(struct dns_request *request, c
 	child_request->qtype = qtype;
 	child_request->qclass = request->qclass;
 	child_request->conf = request->conf;
+	if (request->strict_nameserver_group) {
+		child_request->strict_nameserver_group = 1;
+		child_request->skip_domain_rule = 1;
+		child_request->domain_rule.rules[DOMAIN_RULE_NAMESERVER] =
+			request->domain_rule.rules[DOMAIN_RULE_NAMESERVER];
+	}
 
 	if (request->has_ecs) {
 		memcpy(&child_request->ecs, &request->ecs, sizeof(child_request->ecs));
@@ -1233,6 +1240,9 @@ int _dns_server_setup_query_option(struct dns_request *request, struct dns_query
 		options->enable_flag |= DNS_QUEY_OPTION_EDNS0_DO;
 	}
 	options->conf_group_name = request->dns_group_name;
+	if (request->strict_nameserver_group) {
+		options->enable_flag |= DNS_QUEY_OPTION_STRICT_GROUP;
+	}
 	return 0;
 }
 
@@ -1255,6 +1265,9 @@ int _dns_server_setup_request_conf_pre(struct dns_request *request)
 	}
 
 	request->conf = rule_group;
+	if (_config_priority_nameserver_match(request->domain) != NULL) {
+		return 0;
+	}
 	memset(&domain_rule, 0, sizeof(domain_rule));
 	_dns_server_get_domain_rule_by_domain_ext(rule_group, &domain_rule, DOMAIN_RULE_GROUP, request->domain, 1);
 	if (domain_rule.rules[DOMAIN_RULE_GROUP] == NULL) {

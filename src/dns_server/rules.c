@@ -23,6 +23,7 @@
 #include "request.h"
 #include "request_pending.h"
 #include "soa.h"
+#include "../dns_conf/nameserver.h"
 
 void *_dns_server_get_dns_rule_ext(struct dns_request_domain_rule *domain_rule, enum domain_rule rule)
 {
@@ -682,6 +683,17 @@ void _dns_server_get_domain_rule_by_domain(struct dns_request *request, const ch
 	if (request->conf == NULL) {
 		return;
 	}
+	const struct dns_nameserver_rule *priority = _config_priority_nameserver_match(domain);
+	if (priority != NULL) {
+		memset(&request->domain_rule, 0, sizeof(request->domain_rule));
+		request->domain_rule.rules[DOMAIN_RULE_NAMESERVER] = (struct dns_rule *)priority;
+		request->strict_nameserver_group = 1;
+		/* Old cache entries may have been resolved via a fallback server. */
+		request->server_flags |= BIND_FLAG_NO_CACHE;
+		request->skip_domain_rule = 1;
+		return;
+	}
+	request->strict_nameserver_group = 0;
 
 	_dns_server_get_domain_rule_by_domain_ext(request->conf, &request->domain_rule, -1, domain, out_log);
 	request->skip_domain_rule = 1;

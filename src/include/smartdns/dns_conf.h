@@ -19,6 +19,18 @@
 #ifndef _DNS_CONF
 #define _DNS_CONF
 
+/* gcc_builtin.h defines __used, which corrupts a field in glibc regex_t. */
+#ifdef __used
+#pragma push_macro("__used")
+#undef __used
+#define SMARTDNS_RESTORE_USED_AFTER_REGEX
+#endif
+#include <regex.h>
+#ifdef SMARTDNS_RESTORE_USED_AFTER_REGEX
+#pragma pop_macro("__used")
+#undef SMARTDNS_RESTORE_USED_AFTER_REGEX
+#endif
+
 #include "smartdns/dns.h"
 #include "smartdns/dns_client.h"
 #include "smartdns/lib/art.h"
@@ -29,7 +41,6 @@
 #include "smartdns/lib/list.h"
 #include "smartdns/lib/radix.h"
 #include "smartdns/proxy.h"
-#include <regex.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -285,6 +296,14 @@ struct dns_domain_rule {
 struct dns_nameserver_rule {
 	struct dns_rule head;
 	const char *group_name;
+};
+
+struct dns_priority_nameserver_rule {
+	struct list_head list;
+	char *pattern;
+	regex_t regex;
+	int match_type; /* 0: domain and children, 1: children, 2: exact, 3: regex */
+	struct dns_nameserver_rule nameserver;
 };
 
 struct dns_group_rule {
@@ -794,6 +813,7 @@ struct dns_config {
 	int dns_no_daemon;
 	int dns_restart_on_crash;
 	size_t dns_socket_buff_size;
+	struct list_head priority_nameservers;
 };
 extern struct dns_config dns_conf;
 

@@ -27,6 +27,9 @@ extern "C" {
 #endif /*__cplusplus */
 
 int _config_nameserver(void *data, int argc, char *argv[]);
+int _config_priority_nameserver(void *data, int argc, char *argv[]);
+void _config_priority_nameserver_destroy(void);
+const struct dns_nameserver_rule *_config_priority_nameserver_match(const char *domain);
 
 int _conf_domain_rule_nameserver(const char *domain, const char *group_name);
 
