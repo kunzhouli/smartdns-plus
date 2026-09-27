@@ -65,6 +65,19 @@ class CloudflareManagerTest(unittest.TestCase):
         self.assertTrue(manager.due(config, {}))
         self.assertFalse(manager.due(config, {"last_attempt": int(time.time())}))
 
+    def test_legacy_download_url_is_ignored(self):
+        config = manager.validate({**manager.defaults(), "test_url": "https://old.invalid/download"})
+        self.assertNotIn("test_url", config)
+
+    def test_speedtest_uses_bundled_default_download_url(self):
+        networks = [ipaddress.ip_network("104.16.0.0/13")]
+        with patch.object(manager.subprocess, "run") as run, \
+                patch.object(manager, "select_best", return_value="104.16.1.1"):
+            run.return_value.returncode = 0
+            manager.speedtest(networks, 4, 40, str(manager.ROOT))
+        args = run.call_args.args[0]
+        self.assertNotIn("-url", args)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -74,6 +74,17 @@ class UpstreamManagerTest(unittest.TestCase):
         self.assertIn("used by GeoSite", result.stdout)
         self.assertEqual(json.loads((self.root / "upstream.json").read_text())["groups"], ["overseas"])
 
+    def test_cannot_remove_group_used_by_domain_route(self):
+        original = {"groups": ["overseas"], "servers": []}
+        self.assertEqual(self.command("save", original).returncode, 0)
+        (self.root / "domain-routes.json").write_text(json.dumps({"rules": [
+            {"domain": "example.com", "group": "overseas"},
+        ]}))
+        result = self.command("save", {"groups": [], "servers": []})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("used by domain routing rules", result.stdout)
+        self.assertEqual(json.loads((self.root / "upstream.json").read_text())["groups"], ["overseas"])
+
 
 if __name__ == "__main__":
     unittest.main()

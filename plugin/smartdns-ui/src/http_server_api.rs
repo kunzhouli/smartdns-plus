@@ -106,6 +106,8 @@ impl API {
         api.register(Method::GET, "/api/geosite/config", true, APIRoute!(API::api_geosite_get));
         api.register(Method::PUT, "/api/geosite/config", true, APIRoute!(API::api_geosite_save));
         api.register(Method::POST, "/api/geosite/update", true, APIRoute!(API::api_geosite_update));
+        api.register(Method::GET, "/api/domain-routes/config", true, APIRoute!(API::api_domain_routes_get));
+        api.register(Method::PUT, "/api/domain-routes/config", true, APIRoute!(API::api_domain_routes_save));
         api.register(Method::GET, "/api/cloudflare/config", true, APIRoute!(API::api_cloudflare_get));
         api.register(Method::PUT, "/api/cloudflare/config", true, APIRoute!(API::api_cloudflare_save));
         api.register(Method::POST, "/api/cloudflare/run", true, APIRoute!(API::api_cloudflare_run));
@@ -307,6 +309,25 @@ impl API {
         _this: Arc<HttpServer>, _param: APIRouteParam, _req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
         let result = API::run_manager("/usr/lib/smartdns/geosite-manager.py", "update", None).await?;
+        Plugin::smartdns_restart();
+        API::response_build(StatusCode::OK, result)
+    }
+
+    async fn api_domain_routes_get(
+        _this: Arc<HttpServer>, _param: APIRouteParam, _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        API::response_build(StatusCode::OK,
+            API::run_manager("/usr/lib/smartdns/domain-routes-manager.py", "show", None).await?)
+    }
+
+    async fn api_domain_routes_save(
+        _this: Arc<HttpServer>, _param: APIRouteParam, req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let body = req.into_body().collect().await?.to_bytes();
+        if body.len() > 65536 {
+            return API::response_error(StatusCode::PAYLOAD_TOO_LARGE, "Domain routing rules are too large");
+        }
+        let result = API::run_manager("/usr/lib/smartdns/domain-routes-manager.py", "save", Some(body.to_vec())).await?;
         Plugin::smartdns_restart();
         API::response_build(StatusCode::OK, result)
     }

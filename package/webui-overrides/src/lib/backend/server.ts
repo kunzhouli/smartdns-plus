@@ -23,13 +23,21 @@ export interface GeositeConfig {
     last_update?: number | null;
 }
 
+export interface DomainRoute {
+    domain: string;
+    group: string;
+}
+
+export interface DomainRoutesConfig {
+    rules: DomainRoute[];
+}
+
 export interface CloudflareConfig {
     enabled: boolean;
     run_time: string;
     interval_days: number;
     ipv6_enabled: boolean;
     threads: number;
-    test_url: string;
     best_v4?: string;
     best_v6?: string;
     last_attempt?: number;
@@ -344,6 +352,14 @@ class SmartDNSAPI {
 
     async GetGeositeConfig(): Promise<FetchResponse<GeositeConfig>> {
         return this.server.fetch<GeositeConfig>('/api/geosite/config', 'GET', {}, {});
+    }
+
+    async GetDomainRoutesConfig(): Promise<FetchResponse<DomainRoutesConfig>> {
+        return this.server.fetch<DomainRoutesConfig>('/api/domain-routes/config', 'GET', {}, {});
+    }
+
+    async SaveDomainRoutesConfig(config: DomainRoutesConfig): Promise<FetchResponse<DomainRoutesConfig>> {
+        return this.server.fetch<DomainRoutesConfig>('/api/domain-routes/config', 'PUT', {}, config);
     }
 
     async SaveGeositeConfig(config: GeositeConfig): Promise<FetchResponse<GeositeConfig>> {

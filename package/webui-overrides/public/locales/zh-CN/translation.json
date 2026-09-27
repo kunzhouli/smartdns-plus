@@ -197,5 +197,12 @@
   "A speed test may take several minutes and uses download bandwidth.": "测速可能持续数分钟并占用下载带宽。",
   "Cloudflare settings saved.": "Cloudflare 设置已保存。",
   "Cloudflare speed test completed.": "Cloudflare 测速完成。",
-  "Speed test download URL": "测速下载 URL"
+  "Speed test download URL": "测速下载 URL",
+  "Rules": "规则",
+  "Domain rules": "域名规则",
+  "Domain": "域名",
+  "Add domain rule": "添加域名规则",
+  "Domain rules saved.": "域名规则已保存。",
+  "Managed groups": "页面管理的服务器组",
+  "Route a domain to an existing DNS server group. A plain domain matches it and its subdomains; *.example.com matches subdomains only; -.example.com matches the exact domain only.": "将域名分流到已有 DNS 服务器组。普通域名匹配自身及子域名；*.example.com 仅匹配子域名；-.example.com 仅匹配域名自身。"
 }

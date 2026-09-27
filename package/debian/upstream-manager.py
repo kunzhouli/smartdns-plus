@@ -162,15 +162,24 @@ def show(config=None):
 
 def check_removed_groups(previous, current):
     removed = set(previous["groups"]) - set(current["groups"])
-    path = ROOT / "geosite.json"
-    if not removed or not path.exists():
+    if not removed:
         return
-    geosite = json.loads(path.read_text())
-    referenced = {rule.get("group") for rule in geosite.get("rules", [])
-                  if isinstance(rule, dict) and rule.get("action") == "route"}
-    in_use = removed & referenced
-    if in_use:
-        raise ValueError("Group is used by GeoSite rules: " + ", ".join(sorted(in_use)))
+    geosite_path = ROOT / "geosite.json"
+    if geosite_path.exists():
+        geosite = json.loads(geosite_path.read_text())
+        referenced = {rule.get("group") for rule in geosite.get("rules", [])
+                      if isinstance(rule, dict) and rule.get("action") == "route"}
+        in_use = removed & referenced
+        if in_use:
+            raise ValueError("Group is used by GeoSite rules: " + ", ".join(sorted(in_use)))
+    domain_path = ROOT / "domain-routes.json"
+    if domain_path.exists():
+        domain_routes = json.loads(domain_path.read_text())
+        referenced = {rule.get("group") for rule in domain_routes.get("rules", [])
+                      if isinstance(rule, dict)}
+        in_use = removed & referenced
+        if in_use:
+            raise ValueError("Group is used by domain routing rules: " + ", ".join(sorted(in_use)))
 
 
 def main():

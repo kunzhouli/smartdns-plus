@@ -5,7 +5,6 @@ import Stack from '@mui/material/Stack';
 
 import { UpdatePasswordForm } from '@/components/dashboard/settings/update-password-form';
 import { ChangeLang } from '@/components/dashboard/settings/change-lang';
-import { GeositeSettings } from '@/components/dashboard/settings/geosite-settings';
 import { CloudflareSettings } from '@/components/dashboard/settings/cloudflare-settings';
 import { TabContext, TabList, TabPanel } from '@mui/lab';
 import { Box, Card, CardContent, Tab, Typography } from '@mui/material';
@@ -19,10 +18,6 @@ const tabs = [
   {
     label: 'Language',
     pannel: <ChangeLang />,
-  },
-  {
-    label: 'GeoSite',
-    pannel: <GeositeSettings />,
   },
   {
     label: 'Cloudflare',

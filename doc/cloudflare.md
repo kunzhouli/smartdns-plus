@@ -14,10 +14,9 @@ minute; a failed test keeps the previous working IPs and rules. IPv4 and IPv6
 are measured separately. If IPv6 is unavailable, IPv4 can still update.
 
 The feature starts disabled and makes no answer changes until a test finds a
-working IP with a positive download speed. The Web UI shows both selected IPs,
-the last attempt, the last successful run, and errors. The **Speed test download
-URL** field can be changed when the default endpoint is unavailable on the
-user's network.
+working IP with a positive download speed. CloudflareSpeedTest uses its built-in
+download URL. The Web UI shows both selected IPs, the last attempt, the last
+successful run, and errors.
 
 Settings are stored in `/etc/smartdns/cloudflare.json`, the selected IPs and
 ranges in `/etc/smartdns/cloudflare-state.json`, and generated rules in

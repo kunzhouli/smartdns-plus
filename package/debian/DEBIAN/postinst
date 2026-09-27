@@ -13,8 +13,14 @@ if [ "$1" = configure ]; then
 	if [ ! -e /etc/smartdns/geosite.conf ]; then
 		printf '%s\n' '# Managed by geosite-manager.py' > /etc/smartdns/geosite.conf
 	fi
+	if [ ! -e /etc/smartdns/domain-routes.json ]; then
+		printf '%s\n' '{"rules":[]}' > /etc/smartdns/domain-routes.json
+	fi
+	if [ ! -e /etc/smartdns/domain-routes.conf ]; then
+		printf '%s\n' '# Managed by domain-routes-manager.py; edit through the Web UI.' > /etc/smartdns/domain-routes.conf
+	fi
 	if [ ! -e /etc/smartdns/cloudflare.json ]; then
-		printf '%s\n' '{"enabled":false,"run_time":"03:00","interval_days":1,"ipv6_enabled":true,"threads":40,"test_url":"https://speed.cloudflare.com/__down?bytes=200000000"}' > /etc/smartdns/cloudflare.json
+		printf '%s\n' '{"enabled":false,"run_time":"03:00","interval_days":1,"ipv6_enabled":true,"threads":40}' > /etc/smartdns/cloudflare.json
 	fi
 	if [ ! -e /etc/smartdns/cloudflare.conf ]; then
 		printf '%s\n' '# Managed by cloudflare-manager.py' > /etc/smartdns/cloudflare.conf
@@ -24,6 +30,9 @@ if [ "$1" = configure ]; then
 	fi
 	if ! grep -Eq '^conf-file[[:space:]]+/etc/smartdns/upstream.conf([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
 		printf 'conf-file /etc/smartdns/upstream.conf\n' >> /etc/smartdns/smartdns.conf
+	fi
+	if ! grep -Eq '^conf-file[[:space:]]+/etc/smartdns/domain-routes.conf([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
+		printf 'conf-file /etc/smartdns/domain-routes.conf\n' >> /etc/smartdns/smartdns.conf
 	fi
 	if ! grep -Eq '^conf-file[[:space:]]+/etc/smartdns/cloudflare.conf([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
 		printf 'conf-file /etc/smartdns/cloudflare.conf\n' >> /etc/smartdns/smartdns.conf

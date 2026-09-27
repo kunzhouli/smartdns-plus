@@ -14,7 +14,6 @@ import sys
 import tempfile
 import time
 import urllib.request
-import urllib.parse
 from pathlib import Path
 
 ROOT = Path(os.environ.get("SMARTDNS_CFPATH", "/etc/smartdns"))
@@ -29,8 +28,7 @@ TIME = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 
 def defaults():
     return {"enabled": False, "run_time": "03:00", "interval_days": 1,
-            "ipv6_enabled": True, "threads": 40,
-            "test_url": "https://speed.cloudflare.com/__down?bytes=200000000"}
+            "ipv6_enabled": True, "threads": 40}
 
 
 def validate(raw):
@@ -46,12 +44,6 @@ def validate(raw):
         raise ValueError("interval_days must be between 1 and 365")
     if type(config["threads"]) is not int or not 1 <= config["threads"] <= 200:
         raise ValueError("threads must be between 1 and 200")
-    url = config["test_url"]
-    if not isinstance(url, str) or len(url) > 2048 or any(char.isspace() for char in url):
-        raise ValueError("Invalid speed test URL")
-    parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
-        raise ValueError("Speed test URL must be HTTP(S) without credentials")
     return config
 
 
@@ -124,13 +116,12 @@ def select_best(csv_path, networks, family):
     raise ValueError(f"CloudflareSpeedTest found no usable IPv{family} address")
 
 
-def speedtest(networks, family, threads, test_url, tempdir):
+def speedtest(networks, family, threads, tempdir):
     input_path = Path(tempdir) / f"ips-v{family}.txt"
     output_path = Path(tempdir) / f"result-v{family}.csv"
     input_path.write_text("\n".join(str(network) for network in networks) + "\n")
     args = [CFST, "-f", str(input_path), "-o", str(output_path), "-p", "0",
-            "-n", str(threads), "-t", "2", "-dn", "5", "-dt", "5", "-tl", "1000",
-            "-url", test_url]
+            "-n", str(threads), "-t", "2", "-dn", "5", "-dt", "5", "-tl", "1000"]
     done = subprocess.run(args, cwd=tempdir, stdin=subprocess.DEVNULL,
                           capture_output=True, text=True, timeout=600)
     if done.returncode:
@@ -176,7 +167,7 @@ def run_test(config, state):
                 if family == 6 and not config["ipv6_enabled"]:
                     continue
                 try:
-                    best = speedtest(ranges[family], family, config["threads"], config["test_url"], tempdir)
+                    best = speedtest(ranges[family], family, config["threads"], tempdir)
                     state[f"best_v{family}"] = best
                     state[f"ranges_v{family}"] = [str(network) for network in ranges[family]]
                     changed = True

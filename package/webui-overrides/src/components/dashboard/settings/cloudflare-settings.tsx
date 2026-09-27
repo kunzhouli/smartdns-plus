@@ -7,13 +7,11 @@ import { CloudflareConfig, smartdnsServer } from '@/lib/backend/server';
 
 const defaults: CloudflareConfig = {
   enabled: false, run_time: '03:00', interval_days: 1, ipv6_enabled: true, threads: 40,
-  test_url: 'https://speed.cloudflare.com/__down?bytes=200000000',
 };
 
 function settings(value: CloudflareConfig): string {
   return JSON.stringify({ enabled: value.enabled, run_time: value.run_time,
-    interval_days: value.interval_days, ipv6_enabled: value.ipv6_enabled, threads: value.threads,
-    test_url: value.test_url });
+    interval_days: value.interval_days, ipv6_enabled: value.ipv6_enabled, threads: value.threads });
 }
 
 export function CloudflareSettings(): React.JSX.Element {
@@ -63,7 +61,6 @@ export function CloudflareSettings(): React.JSX.Element {
       <TextField label={t('Test threads')} type="number" value={config.threads} onChange={(event) => change('threads', Number(event.target.value))} inputProps={{ min: 1, max: 200 }} />
     </Stack>
     <FormControlLabel control={<Switch checked={config.ipv6_enabled} onChange={(event) => change('ipv6_enabled', event.target.checked)} />} label={t('Measure IPv6 too')} />
-    <TextField fullWidth label={t('Speed test download URL')} value={config.test_url} onChange={(event) => change('test_url', event.target.value)} />
     <Typography variant="body2">{t('Best IPv4')}: {config.best_v4 || '—'} · {t('Best IPv6')}: {config.best_v6 || '—'}</Typography>
     <Typography variant="body2">{t('Last attempt')}: {date(config.last_attempt)} · {t('Last success')}: {date(config.last_success)}</Typography>
     {config.last_error ? <Alert severity="warning">{config.last_error}</Alert> : null}
