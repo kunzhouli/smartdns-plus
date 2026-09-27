@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Alert, Button, IconButton, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Button, IconButton, Stack, TextField, Typography } from '@mui/material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { useTranslation } from 'react-i18next';
 import { DomainRoutesConfig, smartdnsServer } from '@/lib/backend/server';
@@ -46,7 +46,10 @@ export function DomainRoutesSettings(): React.JSX.Element {
     {message ? <Alert severity="success">{message}</Alert> : null}
     {config.rules.map((rule, index) => <Stack key={index} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="center">
       <TextField label={t('Domain')} value={rule.domain} onChange={(event) => changeRule(index, 'domain', event.target.value)} placeholder="example.com" fullWidth />
-      <TextField label={t('Nameserver group')} value={rule.group} onChange={(event) => changeRule(index, 'group', event.target.value)} sx={{ minWidth: 190 }} />
+      <Autocomplete freeSolo options={groups} inputValue={rule.group}
+        onInputChange={(_, value) => changeRule(index, 'group', value)}
+        renderInput={(params) => <TextField {...params} label={t('Nameserver group')} />}
+        sx={{ minWidth: 190 }} />
       <IconButton aria-label={t('Remove rule')} onClick={() => setConfig((previous) => ({ rules: previous.rules.filter((_, row) => row !== index) }))}><DeleteOutlineIcon /></IconButton>
     </Stack>)}
     <Stack direction="row" spacing={1}>

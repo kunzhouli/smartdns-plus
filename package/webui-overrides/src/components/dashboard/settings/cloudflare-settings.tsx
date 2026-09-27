@@ -56,7 +56,7 @@ export function CloudflareSettings(): React.JSX.Element {
     {config.cfst_available ? null : <Alert severity="warning">{t('CloudflareSpeedTest binary is unavailable on this server.')}</Alert>}
     <FormControlLabel control={<Switch checked={config.enabled} onChange={(event) => change('enabled', event.target.checked)} />} label={t('Enable Cloudflare acceleration')} />
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-      <TextField label={t('Run at (local time)')} type="time" value={config.run_time} onChange={(event) => change('run_time', event.target.value)} InputLabelProps={{ shrink: true }} />
+      <TextField label={t('Run at (server time)')} type="time" value={config.run_time} onChange={(event) => change('run_time', event.target.value)} InputLabelProps={{ shrink: true }} />
       <TextField label={t('Repeat every (days)')} type="number" value={config.interval_days} onChange={(event) => change('interval_days', Number(event.target.value))} inputProps={{ min: 1, max: 365 }} />
       <TextField label={t('Test threads')} type="number" value={config.threads} onChange={(event) => change('threads', Number(event.target.value))} inputProps={{ min: 1, max: 200 }} />
     </Stack>

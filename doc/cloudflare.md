@@ -7,7 +7,7 @@ SmartDNS applies this with its existing `ip-alias` rules, so an actual DNS
 answer IP must match a Cloudflare range before a replacement is made.
 
 The Debian package with Web UI includes CloudflareSpeedTest v2.3.5. In
-**Settings → Cloudflare**, enable acceleration, choose a local run time and a
+**Settings → Cloudflare**, enable acceleration, choose a server-local run time and a
 repeat interval in days, and save. Use **Run speed test now** to get the first
 result without waiting for the schedule. The timer checks the chosen time each
 minute; a failed test keeps the previous working IPs and rules. IPv4 and IPv6
