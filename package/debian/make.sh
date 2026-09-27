@@ -88,6 +88,7 @@ build()
 	cp /usr/share/common-licenses/GPL-3 "$ROOT/usr/share/doc/smartdns/CloudflareSpeedTest.LICENSE" || return 1
 	cp "$CURR_DIR/CloudflareSpeedTest.NOTICE" "$ROOT/usr/share/doc/smartdns/" || return 1
 	cp "$CURR_DIR/DEBIAN/copyright" "$ROOT/usr/share/doc/smartdns/copyright" || return 1
+	cp "$SMARTDNS_DIR/NOTICE.md" "$ROOT/usr/share/doc/smartdns/NOTICE.md" || return 1
 
 	if [ $IS_BUILD_SMARTDNS_UI -eq 1 ]; then
 		mkdir $ROOT/usr/local/lib/smartdns -p
@@ -103,6 +104,7 @@ build()
 			echo "Failed to copy smartdns-ui plugin."
 			return 1
 		fi
+		cp "$WORKDIR/smartdns-webui/LICENSE" "$ROOT/usr/share/doc/smartdns/smartdns-webui.LICENSE" || return 1
 		cat >> $ROOT/etc/smartdns/smartdns.conf <<'EOF'
 
 # Debian Web UI

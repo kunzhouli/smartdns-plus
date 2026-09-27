@@ -1,11 +1,31 @@
 Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: smartdns
-Source: http://github.com/pymumu/smartdns
+Upstream-Name: smartdns-plus
+Source: https://github.com/kunzhouli/smartdns-plus
+Comment: This derivative is based on SmartDNS by Ruilin Peng
+ (https://github.com/pymumu/smartdns). The Debian Web UI is based on
+ smartdns-webui (https://github.com/pymumu/smartdns-webui), and the
+ Cloudflare speed test binary is from XIU2/CloudflareSpeedTest.
 
 Files: *
-Copyright: 2018-2025 Nick peng
+Copyright: 2018-2025 Ruilin Peng (Nick)
+ 2026 Kaiden (smartdns-plus modifications)
 License: GPL-3+
+
+Files: usr/share/smartdns/wwwroot/*
+Copyright: 2025 Ruilin Peng (Nick)
+ 2026 Kaiden (smartdns-plus Web UI modifications)
+License: MIT
 
 Files: usr/lib/smartdns/cfst
 Copyright: XIU2 and contributors
 License: GPL-3
+
+License: GPL-3+
+ The complete license text is available in /usr/share/common-licenses/GPL-3.
+
+License: GPL-3
+ The complete license text is available in /usr/share/common-licenses/GPL-3.
+
+License: MIT
+ The complete upstream Web UI license is installed as
+ /usr/share/doc/smartdns/smartdns-webui.LICENSE.

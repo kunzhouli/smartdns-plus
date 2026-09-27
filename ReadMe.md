@@ -1,5 +1,7 @@
 # SmartDNS
 
+本衍生版本的修改由 Kaiden 维护。它基于 SmartDNS 和 smartdns-webui，集成 CloudflareSpeedTest；原项目的版权声明予以保留。项目来源和许可见 [NOTICE.md](NOTICE.md)。
+
 **[English](ReadMe_en.md)**
 
 ![SmartDNS](doc/smartdns-banner.png)
