@@ -44,6 +44,25 @@ class UpstreamManagerTest(unittest.TestCase):
         shown = json.loads(self.command("show").stdout)
         self.assertEqual(shown["manual_servers"], [manual.strip()])
         self.assertEqual(shown["groups"], payload["groups"])
+        self.assertEqual(shown["default_group"], "")
+
+    def test_selected_default_group_excludes_other_managed_servers(self):
+        payload = {
+            "groups": ["China", "Overseas"],
+            "default_group": "Overseas",
+            "servers": [
+                {"endpoint": "1.1.1.1", "groups": ["Overseas"],
+                 "exclude_default": True, "enabled": True, "host_ip": ""},
+                {"endpoint": "223.5.5.5", "groups": ["China"],
+                 "exclude_default": False, "enabled": True, "host_ip": ""},
+            ],
+        }
+        result = self.command("save", payload)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        rendered = (self.root / "upstream.conf").read_text()
+        self.assertIn("server 1.1.1.1 -group Overseas\n", rendered)
+        self.assertIn("server 223.5.5.5 -group China -exclude-default-group\n", rendered)
+        self.assertEqual(json.loads(self.command("show").stdout)["default_group"], "Overseas")
 
     def test_invalid_inputs_do_not_change_saved_rules(self):
         original = {"groups": ["office"], "servers": [
@@ -57,6 +76,8 @@ class UpstreamManagerTest(unittest.TestCase):
             {"groups": ["office", "office"], "servers": []},
             {"groups": [], "servers": original["servers"]},
             {"groups": [], "servers": [{**original["servers"][0], "groups": [], "host_ip": ""}]},
+            {**original, "default_group": "missing"},
+            {**original, "default_group": "office", "servers": []},
         ]
         for payload in invalid:
             with self.subTest(payload=payload):

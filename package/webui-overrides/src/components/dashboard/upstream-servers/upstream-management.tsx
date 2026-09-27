@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { type ManagedUpstreamServer, type UpstreamConfig, smartdnsServer } from '@/lib/backend/server';
 import { useUser } from '@/hooks/use-user';
 
-const emptyConfig: UpstreamConfig = { groups: [], servers: [] };
+const emptyConfig: UpstreamConfig = { groups: [], default_group: '', servers: [] };
 
 export function UpstreamManagement(): React.JSX.Element {
   const { t } = useTranslation();
@@ -46,6 +46,7 @@ export function UpstreamManagement(): React.JSX.Element {
       return {
         ...previous,
         groups: previous.groups.map((group, row) => row === index ? name : group),
+        default_group: previous.default_group === oldName ? name : previous.default_group,
         servers: previous.servers.map((server) => ({
           ...server,
           groups: server.groups.map((group) => group === oldName ? name : group),
@@ -55,6 +56,10 @@ export function UpstreamManagement(): React.JSX.Element {
   };
 
   const removeGroup = (index: number): void => {
+    if (config.groups[index] === config.default_group) {
+      setError(t('Select another default DNS group before removing this group.'));
+      return;
+    }
     setConfig((previous) => {
       const name = previous.groups[index];
       return {
@@ -89,7 +94,7 @@ export function UpstreamManagement(): React.JSX.Element {
   };
 
   const settings = (value: UpstreamConfig): string => JSON.stringify({
-    groups: value.groups, servers: value.servers,
+    groups: value.groups, default_group: value.default_group, servers: value.servers,
   });
   const hasUnsavedChanges = saved === null || settings(config) !== settings(saved);
 
@@ -129,6 +134,19 @@ export function UpstreamManagement(): React.JSX.Element {
           <Button variant="outlined" onClick={addGroup}>{t('Add group')}</Button>
         </Stack>
 
+        <FormControl sx={{ maxWidth: 400 }} size="small">
+          <InputLabel id="default-dns-group-label">{t('Default DNS group')}</InputLabel>
+          <Select labelId="default-dns-group-label" label={t('Default DNS group')}
+            value={config.default_group}
+            onChange={(event) => setConfig((previous) => ({ ...previous, default_group: event.target.value }))}>
+            <MenuItem value="">{t('Use per-server default settings')}</MenuItem>
+            {config.groups.map((group) => <MenuItem key={group} value={group}>{group}</MenuItem>)}
+          </Select>
+        </FormControl>
+        <Typography variant="body2" color="textSecondary">
+          {t('Queries without a matching routing rule use enabled servers in the selected group. Other managed servers are excluded from the default group.')}
+        </Typography>
+
         <Typography variant="h6">{t('Managed DNS servers')}</Typography>
         {config.servers.map((server, index) => <Card key={index} variant="outlined">
           <CardContent>
@@ -159,7 +177,7 @@ export function UpstreamManagement(): React.JSX.Element {
                   </Select>
                 </FormControl>
                 <FormControlLabel control={<Switch checked={server.enabled} onChange={(event) => updateServer(index, { enabled: event.target.checked })} />} label={t('Enabled')} />
-                <FormControlLabel control={<Switch checked={server.exclude_default} onChange={(event) => updateServer(index, { exclude_default: event.target.checked })} />} label={t('Exclude from default group')} />
+                {config.default_group === '' ? <FormControlLabel control={<Switch checked={server.exclude_default} onChange={(event) => updateServer(index, { exclude_default: event.target.checked })} />} label={t('Exclude from default group')} /> : null}
               </Stack>
             </Stack>
           </CardContent>

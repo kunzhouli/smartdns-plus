@@ -21,7 +21,7 @@ SCHEMES = {"udp", "tcp", "tls", "https", "quic", "h3", "http3"}
 
 
 def defaults():
-    return {"groups": [], "servers": []}
+    return {"groups": [], "default_group": "", "servers": []}
 
 
 def valid_host(host):
@@ -62,7 +62,7 @@ def valid_endpoint(value):
 
 
 def validate(raw):
-    if not isinstance(raw, dict) or set(raw) - {"groups", "servers", "manual_servers"}:
+    if not isinstance(raw, dict) or set(raw) - {"groups", "default_group", "servers", "manual_servers"}:
         raise ValueError("Expected upstream groups and servers")
     groups = raw.get("groups", [])
     servers = raw.get("servers", [])
@@ -77,6 +77,9 @@ def validate(raw):
         if name in cleaned_groups:
             raise ValueError(f"Duplicate server group: {name}")
         cleaned_groups.append(name)
+    default_group = raw.get("default_group", "")
+    if not isinstance(default_group, str) or (default_group and default_group not in cleaned_groups):
+        raise ValueError("Default DNS group must be an existing server group")
     cleaned_servers = []
     seen = set()
     for server in servers:
@@ -110,7 +113,13 @@ def validate(raw):
         cleaned_servers.append({"endpoint": endpoint, "groups": memberships,
                                 "exclude_default": exclude_default, "enabled": enabled,
                                 "host_ip": host_ip})
-    return {"groups": cleaned_groups, "servers": cleaned_servers}
+    if default_group and not any(server["enabled"] and default_group in server["groups"]
+                                 for server in cleaned_servers):
+        raise ValueError("Default DNS group needs at least one enabled server")
+    if default_group and any(server["enabled"] and not server["groups"]
+                             for server in cleaned_servers):
+        raise ValueError("Assign each enabled server to a group when a default DNS group is selected")
+    return {"groups": cleaned_groups, "default_group": default_group, "servers": cleaned_servers}
 
 
 def render(config):
@@ -121,7 +130,8 @@ def render(config):
         line = "server " + server["endpoint"]
         for group in server["groups"]:
             line += " -group " + group
-        if server["exclude_default"]:
+        if (config["default_group"] not in server["groups"] if config["default_group"]
+                else server["exclude_default"]):
             line += " -exclude-default-group"
         if server["host_ip"]:
             line += " -host-ip " + server["host_ip"]

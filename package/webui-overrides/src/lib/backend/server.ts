@@ -56,6 +56,7 @@ export interface ManagedUpstreamServer {
 
 export interface UpstreamConfig {
     groups: string[];
+    default_group: string;
     servers: ManagedUpstreamServer[];
     manual_servers?: string[];
 }
