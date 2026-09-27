@@ -1,6 +1,12 @@
 #!/bin/sh
 set -e
 if [ "$1" = configure ]; then
+	if [ ! -e /etc/smartdns/upstream.json ]; then
+		printf '%s\n' '{"groups":[],"servers":[]}' > /etc/smartdns/upstream.json
+	fi
+	if [ ! -e /etc/smartdns/upstream.conf ]; then
+		printf '%s\n' '# Managed by upstream-manager.py' > /etc/smartdns/upstream.conf
+	fi
 	if [ ! -e /etc/smartdns/geosite.json ]; then
 		printf '%s\n' '{"source":"https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat","github_proxy":"","auto_update":false,"interval_hours":24,"rules":[]}' > /etc/smartdns/geosite.json
 	fi
@@ -15,6 +21,9 @@ if [ "$1" = configure ]; then
 	fi
 	if ! grep -Eq '^conf-file[[:space:]]+/etc/smartdns/geosite.conf([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
 		printf '\nconf-file /etc/smartdns/geosite.conf\n' >> /etc/smartdns/smartdns.conf
+	fi
+	if ! grep -Eq '^conf-file[[:space:]]+/etc/smartdns/upstream.conf([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
+		printf 'conf-file /etc/smartdns/upstream.conf\n' >> /etc/smartdns/smartdns.conf
 	fi
 	if ! grep -Eq '^conf-file[[:space:]]+/etc/smartdns/cloudflare.conf([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
 		printf 'conf-file /etc/smartdns/cloudflare.conf\n' >> /etc/smartdns/smartdns.conf

@@ -99,6 +99,8 @@ impl API {
         api.register(Method::GET, "/api/log/audit/stream", true, APIRoute!(API::api_audit_log_stream));
         api.register(Method::GET, "/api/server/version", false, APIRoute!(API::api_server_version));
         api.register(Method::GET, "/api/upstream-server", true, APIRoute!(API::api_upstream_server_get_list));
+        api.register(Method::GET, "/api/upstream/config", true, APIRoute!(API::api_upstream_get));
+        api.register(Method::PUT, "/api/upstream/config", true, APIRoute!(API::api_upstream_save));
         api.register(Method::GET, "/api/config/settings", true, APIRoute!(API::api_config_get_settings));
         api.register(Method::PUT, "/api/config/settings", true, APIRoute!(API::api_config_set_settings));
         api.register(Method::GET, "/api/geosite/config", true, APIRoute!(API::api_geosite_get));
@@ -262,6 +264,25 @@ impl API {
             return Err(HttpError::new(StatusCode::BAD_REQUEST, message));
         }
         Ok(body)
+    }
+
+    async fn api_upstream_get(
+        _this: Arc<HttpServer>, _param: APIRouteParam, _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        API::response_build(StatusCode::OK,
+            API::run_manager("/usr/lib/smartdns/upstream-manager.py", "show", None).await?)
+    }
+
+    async fn api_upstream_save(
+        _this: Arc<HttpServer>, _param: APIRouteParam, req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let body = req.into_body().collect().await?.to_bytes();
+        if body.len() > 65536 {
+            return API::response_error(StatusCode::PAYLOAD_TOO_LARGE, "Upstream settings are too large");
+        }
+        let result = API::run_manager("/usr/lib/smartdns/upstream-manager.py", "save", Some(body.to_vec())).await?;
+        Plugin::smartdns_restart();
+        API::response_build(StatusCode::OK, result)
     }
 
     async fn api_geosite_get(

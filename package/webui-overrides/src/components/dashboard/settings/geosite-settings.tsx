@@ -54,7 +54,7 @@ export function GeositeSettings(): React.JSX.Element {
   const hasUnsavedChanges = savedConfig === null || settings(config) !== settings(savedConfig);
 
   return <Stack spacing={2} sx={{ maxWidth: 850 }}>
-    <Typography variant="body2">{t('Route or block DNS queries by GeoSite category. The nameserver group must already exist in SmartDNS configuration.')}</Typography>
+    <Typography variant="body2">{t('Create a server group under Upstream Servers before routing GeoSite categories to it.')}</Typography>
     {error ? <Alert severity="error">{error}</Alert> : null}
     {message ? <Alert severity="success">{message}</Alert> : null}
     <TextField fullWidth label={t('GeoSite source URL')} value={config.source} onChange={(event) => change('source', event.target.value)} />

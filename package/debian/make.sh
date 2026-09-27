@@ -63,6 +63,8 @@ build()
 	cp $CURR_DIR/geosite-update.service $ROOT/lib/systemd/system/smartdns-geosite-update.service
 	cp $CURR_DIR/geosite-update.timer $ROOT/lib/systemd/system/smartdns-geosite-update.timer
 	cp $CURR_DIR/cloudflare-manager.py $ROOT/usr/lib/smartdns/
+	cp $CURR_DIR/upstream-manager.py $ROOT/usr/lib/smartdns/
+	chmod 0755 $ROOT/usr/lib/smartdns/upstream-manager.py
 	cp $CURR_DIR/cloudflare-scheduled $ROOT/usr/lib/smartdns/
 	chmod 0755 $ROOT/usr/lib/smartdns/cloudflare-manager.py $ROOT/usr/lib/smartdns/cloudflare-scheduled
 	cp $CURR_DIR/cloudflare-speedtest.service $ROOT/lib/systemd/system/smartdns-cloudflare-speedtest.service
@@ -115,7 +117,7 @@ EOF
 	else
 		echo "smartdns-ui plugin not found, skipping copy."
 	fi
-	printf '\n# Debian GeoSite and Cloudflare rules (managed by Web UI)\nconf-file /etc/smartdns/geosite.conf\nconf-file /etc/smartdns/cloudflare.conf\n' >> $ROOT/etc/smartdns/smartdns.conf
+	printf '\n# Debian Web UI managed DNS settings\nconf-file /etc/smartdns/upstream.conf\nconf-file /etc/smartdns/geosite.conf\nconf-file /etc/smartdns/cloudflare.conf\n' >> $ROOT/etc/smartdns/smartdns.conf
 
 	$SMARTDNS_CP $ROOT
 	if [ $? -ne 0 ]; then

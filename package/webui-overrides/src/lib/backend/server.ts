@@ -38,6 +38,20 @@ export interface CloudflareConfig {
     cfst_available?: boolean;
 }
 
+export interface ManagedUpstreamServer {
+    endpoint: string;
+    groups: string[];
+    exclude_default: boolean;
+    enabled: boolean;
+    host_ip: string;
+}
+
+export interface UpstreamConfig {
+    groups: string[];
+    servers: ManagedUpstreamServer[];
+    manual_servers?: string[];
+}
+
 export class AuthorError extends Error {
     constructor(message: string) {
         super(message);
@@ -318,6 +332,14 @@ class SmartDNSAPI {
 
     constructor() {
         this.server = new DataServer();
+    }
+
+    async GetUpstreamConfig(): Promise<FetchResponse<UpstreamConfig>> {
+        return this.server.fetch<UpstreamConfig>('/api/upstream/config', 'GET', {}, {});
+    }
+
+    async SaveUpstreamConfig(config: UpstreamConfig): Promise<FetchResponse<UpstreamConfig>> {
+        return this.server.fetch<UpstreamConfig>('/api/upstream/config', 'PUT', {}, config);
     }
 
     async GetGeositeConfig(): Promise<FetchResponse<GeositeConfig>> {
