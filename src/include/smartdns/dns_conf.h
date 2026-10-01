@@ -315,7 +315,9 @@ struct dns_server_groups {
 	struct hlist_node node;
 	char group_name[DNS_GROUP_NAME_LEN];
 	int server_num;
+	int ordered_parallel;
 	struct dns_servers *servers[DNS_MAX_SERVERS];
+	int server_order[DNS_MAX_SERVERS];
 };
 
 struct dns_domain_check_order {

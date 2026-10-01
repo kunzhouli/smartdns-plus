@@ -51,6 +51,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"drop-packet-latency", required_argument, NULL, 'D'},
 		{"exclude-default-group", no_argument, NULL, 'e'}, /* exclude this from default group */
 		{"group", required_argument, NULL, 'g'}, /* add to group */
+		{"group-order", required_argument, NULL, 267}, /* order within a group */
 		{"proxy", required_argument, NULL, 'p'}, /* proxy server */
 		{"no-check-certificate", no_argument, NULL, 'k'}, /* do not check certificate */
 		{"bootstrap-dns", no_argument, NULL, 'b'}, /* set as bootstrap dns */
@@ -276,6 +277,28 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 		case 266: {
 			safe_strncpy(server->alpn, optarg, DNS_MAX_ALPN_LEN);
+			break;
+		}
+		case 267: {
+			char group_order[DNS_GROUP_NAME_LEN + 16];
+			char *separator = NULL;
+			char *end = NULL;
+			long order = 0;
+			if (strlen(optarg) >= sizeof(group_order)) {
+				goto errout;
+			}
+			safe_strncpy(group_order, optarg, sizeof(group_order));
+			separator = strrchr(group_order, ':');
+			if (!separator || separator == group_order) {
+				goto errout;
+			}
+			*separator++ = '\0';
+			order = strtol(separator, &end, 10);
+			if (*separator == '\0' || *end != '\0' || order < 1 || order > DNS_MAX_SERVERS ||
+				_dns_conf_get_group_set(group_order, server) != 0 ||
+				_dns_conf_set_group_order(group_order, server, (int)order) != 0) {
+				goto errout;
+			}
 			break;
 		}
 		default:

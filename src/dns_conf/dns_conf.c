@@ -191,6 +191,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("server-h3", _config_server_http3, NULL),
 	CONF_CUSTOM("server-http3", _config_server_http3, NULL),
 	CONF_CUSTOM("server-quic", _config_server_quic, NULL),
+	CONF_CUSTOM("server-group-parallel", _config_server_group_parallel, NULL),
 	CONF_YESNO("mdns-lookup", &dns_conf.mdns_lookup),
 	CONF_YESNO("local-ptr-enable", &dns_conf.local_ptr_enable),
 	CONF_CUSTOM("nameserver", _config_nameserver, NULL),

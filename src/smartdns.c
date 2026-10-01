@@ -20,6 +20,7 @@
 
 #include "smartdns/smartdns.h"
 #include "dns_conf/geosite.h"
+#include "dns_conf/server_group.h"
 
 #include "smartdns/lib/art.h"
 #include "smartdns/lib/atomic.h"
@@ -245,6 +246,7 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 	flags->tcp_keepalive = server->tcp_keepalive;
 	flags->subnet_all_query_types = server->subnet_all_query_types;
 	flags->fallback = server->fallback;
+	flags->config_order = (int)(server - dns_conf.servers) + 1;
 	safe_strncpy(flags->proxyname, server->proxyname, sizeof(flags->proxyname));
 	safe_strncpy(flags->ifname, server->ifname, sizeof(flags->ifname));
 	if (server->ipv4_ecs.enable) {
@@ -293,6 +295,9 @@ static int _smartdns_add_servers(void)
 			tlog(TLOG_ERROR, "add group failed, %s", group->group_name);
 			return -1;
 		}
+		if (group->ordered_parallel && dns_client_set_group_parallel(group->group_name, group->ordered_parallel) != 0) {
+			return -1;
+		}
 
 		for (j = 0; j < group->server_num; j++) {
 			server = group->servers[j];
@@ -304,6 +309,7 @@ static int _smartdns_add_servers(void)
 				tlog(TLOG_ERROR, "prepare server flags failed, %s:%d", server->server, server->port);
 				return -1;
 			}
+			flags.config_order = group->server_order[j];
 
 			ret = dns_client_add_to_group(group->group_name, server->server, server->port, server->type, &flags);
 			if (ret != 0) {
@@ -311,6 +317,11 @@ static int _smartdns_add_servers(void)
 				return -1;
 			}
 		}
+	}
+	group = _dns_conf_get_group(DNS_SERVER_GROUP_DEFAULT);
+	if (group && group->ordered_parallel &&
+		dns_client_set_group_parallel(DNS_SERVER_GROUP_DEFAULT, group->ordered_parallel) != 0) {
+		return -1;
 	}
 
 	return 0;

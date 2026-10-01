@@ -195,6 +195,7 @@ struct dns_server_group_member {
 /* upstream server groups */
 struct dns_server_group {
 	char group_name[DNS_GROUP_NAME_LEN];
+	int ordered_parallel;
 	struct hlist_node node;
 	struct list_head head;
 };
@@ -295,6 +296,7 @@ struct dns_query_struct {
 
 	pthread_mutex_t lock;
 	int strict_group;
+	int ordered_next;
 };
 
 extern struct dns_client client;

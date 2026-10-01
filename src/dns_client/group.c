@@ -71,6 +71,7 @@ int _dns_client_add_to_group(const char *group_name, struct dns_server_info *ser
 {
 	struct dns_server_group *group = NULL;
 	struct dns_server_group_member *group_member = NULL;
+	struct dns_server_group_member *position = NULL;
 
 	group = _dns_client_get_group(group_name);
 	if (group == NULL) {
@@ -85,7 +86,15 @@ int _dns_client_add_to_group(const char *group_name, struct dns_server_info *ser
 	}
 	group_member->server = server_info;
 	dns_client_server_info_get(server_info);
-	list_add(&group_member->list, &group->head);
+	/* Keep configuration order even when a hostname upstream resolves later. */
+	list_for_each_entry(position, &group->head, list)
+	{
+		if (server_info->flags.config_order < position->server->flags.config_order) {
+			list_add_tail(&group_member->list, &position->list);
+			return 0;
+		}
+	}
+	list_add_tail(&group_member->list, &group->head);
 
 	return 0;
 errout:
@@ -199,6 +208,16 @@ errout:
 	}
 
 	return -1;
+}
+
+int dns_client_set_group_parallel(const char *group_name, int parallel)
+{
+	struct dns_server_group *group = _dns_client_get_group(group_name);
+	if (!group || parallel < 1 || parallel > 100) {
+		return -1;
+	}
+	group->ordered_parallel = parallel;
+	return 0;
 }
 
 static int _dns_client_remove_group(struct dns_server_group *group)

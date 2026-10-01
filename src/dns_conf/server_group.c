@@ -23,6 +23,26 @@
 /* dns groups */
 struct dns_group_table dns_group_table;
 
+int _config_server_group_parallel(void *data, int argc, char *argv[])
+{
+	struct dns_server_groups *group = NULL;
+	char *end = NULL;
+	long parallel = 0;
+	if (argc != 3) {
+		return -1;
+	}
+	parallel = strtol(argv[2], &end, 10);
+	if (*argv[2] == '\0' || *end != '\0' || parallel < 1 || parallel > 100) {
+		return -1;
+	}
+	group = _dns_conf_get_group(argv[1]);
+	if (!group) {
+		return -1;
+	}
+	group->ordered_parallel = (int)parallel;
+	return 0;
+}
+
 struct dns_server_groups *_dns_conf_get_group(const char *group_name)
 {
 	uint32_t key = 0;
@@ -74,9 +94,26 @@ int _dns_conf_get_group_set(const char *group_name, struct dns_servers *server)
 	}
 
 	group->servers[group->server_num] = server;
+	group->server_order[group->server_num] = 1000 + (int)(server - dns_conf.servers);
 	group->server_num++;
 
 	return 0;
+}
+
+int _dns_conf_set_group_order(const char *group_name, struct dns_servers *server, int order)
+{
+	struct dns_server_groups *group = _dns_conf_get_group(group_name);
+	int i = 0;
+	if (!group || order < 1 || order > DNS_MAX_SERVERS) {
+		return -1;
+	}
+	for (i = 0; i < group->server_num; i++) {
+		if (group->servers[i] == server) {
+			group->server_order[i] = order;
+			return 0;
+		}
+	}
+	return -1;
 }
 
 const char *_dns_conf_get_group_name(const char *group_name)

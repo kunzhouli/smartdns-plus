@@ -43,6 +43,36 @@
 static int is_client_init;
 struct dns_client client;
 
+static int _dns_client_ordered_has_next(struct dns_query_struct *query)
+{
+	struct dns_server_group_member *member = NULL;
+	int index = 0;
+	list_for_each_entry(member, &query->server_group->head, list)
+	{
+		if (index++ >= query->ordered_next) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static int _dns_client_answer_has_ip(struct dns_packet *packet, int qtype)
+{
+	struct dns_rrs *rrs = NULL;
+	int count = 0;
+	int i = 0;
+	if (packet->head.rcode != DNS_RC_NOERROR || (qtype != DNS_T_A && qtype != DNS_T_AAAA)) {
+		return 0;
+	}
+	rrs = dns_get_rrs_start(packet, DNS_RRS_AN, &count);
+	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		if (rrs->type == qtype) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 void dns_client_flags_init(struct client_dns_server_flags *flags)
 {
 	memset(flags, 0, sizeof(*flags));
@@ -180,12 +210,25 @@ int _dns_client_recv(struct dns_server_info *server_info, unsigned char *inpacke
 			}
 		} else {
 			if (ret == DNS_CLIENT_ACTION_OK) {
-				query->has_result = 1;
+				if (!query->server_group->ordered_parallel ||
+					(query->qtype != DNS_T_A && query->qtype != DNS_T_AAAA) ||
+					_dns_client_answer_has_ip(packet, query->qtype)) {
+					query->has_result = 1;
+				}
 			} else {
 				tlog(TLOG_DEBUG, "query %s result is invalid, %d", query->domain, ret);
 			}
 
-			if (request_num == 0) {
+			if (query->server_group->ordered_parallel && (query->qtype == DNS_T_A || query->qtype == DNS_T_AAAA) &&
+				query->has_result) {
+				_dns_client_query_remove(query);
+			} else if (query->server_group->ordered_parallel && (query->qtype == DNS_T_A || query->qtype == DNS_T_AAAA) &&
+				   request_num == 0 &&
+				   _dns_client_ordered_has_next(query)) {
+				if (_dns_client_send_query(query) != 0) {
+					_dns_client_query_remove(query);
+				}
+			} else if (request_num == 0) {
 				/* if all server replied, or done, stop query, release resource */
 				_dns_client_query_remove(query);
 			}
@@ -378,6 +421,8 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 	int packet_data_len = 0;
 	unsigned char packet_data_buffer[DNS_IN_PACKSIZE];
 	int prohibit_time = 60;
+	int ordered = query->server_group->ordered_parallel && (query->qtype == DNS_T_A || query->qtype == DNS_T_AAAA);
+	int index = 0;
 
 	query->send_tick = get_tick_count();
 
@@ -398,8 +443,18 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 		}
 
 		pthread_mutex_lock(&client.server_list_lock);
+		index = 0;
 		list_for_each_entry_safe(group_member, tmp, &query->server_group->head, list)
 		{
+			if (ordered) {
+				if (send_count >= query->server_group->ordered_parallel) {
+					break;
+				}
+				if (index++ < query->ordered_next) {
+					continue;
+				}
+				query->ordered_next = index;
+			}
 			server_info = group_member->server;
 
 			/* skip fallback server for first query */
@@ -434,6 +489,9 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 		pthread_mutex_unlock(&client.server_list_lock);
 
 		if (send_count > 0) {
+			break;
+		}
+		if (ordered) {
 			break;
 		}
 	}
@@ -590,7 +648,14 @@ static void _dns_client_period_run(unsigned int msec)
 		if (atomic_read(&query->retry_count) == 1) {
 			_dns_client_check_udp_nat(query);
 		}
-		_dns_client_retry_dns_query(query);
+		if (query->server_group->ordered_parallel && (query->qtype == DNS_T_A || query->qtype == DNS_T_AAAA)) {
+			if (query->has_result || !_dns_client_ordered_has_next(query) ||
+				_dns_client_send_query(query) != 0) {
+				_dns_client_query_remove(query);
+			}
+		} else {
+			_dns_client_retry_dns_query(query);
+		}
 		_dns_client_query_release(query);
 	}
 

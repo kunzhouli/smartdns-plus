@@ -173,6 +173,7 @@ struct client_dns_server_flags {
 	int tcp_keepalive;
 	int drop_packet_latency_ms;
 	int fallback;
+	int config_order;
 
 	char proxyname[DNS_MAX_CNAME_LEN];
 	char ifname[DNS_SERVER_IFNAME_LEN];
@@ -201,6 +202,7 @@ int dns_client_add_server(const char *server_ip, int port, dns_server_type_t ser
 int dns_client_remove_server(const char *server_ip, int port, dns_server_type_t server_type);
 
 int dns_client_add_group(const char *group_name);
+int dns_client_set_group_parallel(const char *group_name, int parallel);
 
 int dns_client_add_to_group(const char *group_name, const char *server_ip, int port, dns_server_type_t server_type,
 							struct client_dns_server_flags *flags);

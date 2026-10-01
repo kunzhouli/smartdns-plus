@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import subprocess
@@ -45,6 +46,7 @@ class UpstreamManagerTest(unittest.TestCase):
         self.assertEqual(shown["manual_servers"], [manual.strip()])
         self.assertEqual(shown["groups"], payload["groups"])
         self.assertEqual(shown["default_group"], "")
+        self.assertEqual(shown["bootstrap_dns"], {})
 
     def test_selected_default_group_excludes_other_managed_servers(self):
         payload = {
@@ -63,6 +65,56 @@ class UpstreamManagerTest(unittest.TestCase):
         self.assertIn("server 1.1.1.1 -group Overseas\n", rendered)
         self.assertIn("server 223.5.5.5 -group China -exclude-default-group\n", rendered)
         self.assertEqual(json.loads(self.command("show").stdout)["default_group"], "Overseas")
+
+    def test_group_bootstrap_servers_route_upstream_hostnames(self):
+        payload = {
+            "groups": ["China", "Overseas"], "default_group": "Overseas",
+            "bootstrap_dns": {"China": "223.5.5.5", "Overseas": "1.1.1.1:5353"},
+            "servers": [
+                {"endpoint": "https://dns.china.example/dns-query", "groups": ["China"],
+                 "exclude_default": False, "enabled": True, "host_ip": ""},
+                {"endpoint": "tls://dns.overseas.example:853", "groups": ["Overseas"],
+                 "exclude_default": False, "enabled": True, "host_ip": ""},
+            ],
+        }
+        result = self.command("save", payload)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        rendered = (self.root / "upstream.conf").read_text()
+        for group, address, host in (("China", "223.5.5.5", "dns.china.example"),
+                                     ("Overseas", "1.1.1.1:5353", "dns.overseas.example")):
+            internal = "webui_boot_" + hashlib.sha256(group.encode()).hexdigest()[:16]
+            self.assertIn(f"server {address} -group {internal} -exclude-default-group\n", rendered)
+            self.assertIn(f"priority-nameserver /-.{host}/ {internal}\n", rendered)
+        self.assertNotIn("server tls://dns.overseas.example:853 -exclude-default-group", rendered)
+        self.assertEqual(json.loads(self.command("show").stdout)["bootstrap_dns"], payload["bootstrap_dns"])
+
+    def test_group_bootstrap_rejects_invalid_addresses_and_conflicting_hostnames(self):
+        server = {"endpoint": "tls://dns.example:853", "groups": ["one"],
+                  "exclude_default": False, "enabled": True, "host_ip": ""}
+        original = {"groups": ["one", "two"], "bootstrap_dns": {"one": "1.1.1.1"},
+                    "servers": [server]}
+        self.assertEqual(self.command("save", original).returncode, 0)
+        before = (self.root / "upstream.conf").read_bytes()
+        invalid = [
+            {**original, "bootstrap_dns": {"one": "dns.example"}},
+            {**original, "bootstrap_dns": {"one": "https://1.1.1.1/dns-query"}},
+            {**original, "bootstrap_dns": {"missing": "1.1.1.1"}},
+            {**original, "bootstrap_dns": {"one": "1.1.1.1", "two": "9.9.9.9"},
+             "servers": [server, {**server, "endpoint": "https://dns.example/dns-query", "groups": ["two"]}]},
+            {**original, "servers": [{**server, "groups": ["one", "two"]}]},
+        ]
+        for payload in invalid:
+            with self.subTest(payload=payload):
+                self.assertNotEqual(self.command("save", payload).returncode, 0)
+                self.assertEqual((self.root / "upstream.conf").read_bytes(), before)
+
+    def test_unused_group_bootstrap_does_not_add_a_dns_server(self):
+        payload = {"groups": ["one"], "bootstrap_dns": {"one": "[2606:4700:4700::1111]:53"},
+                   "servers": [{"endpoint": "1.1.1.1", "groups": ["one"],
+                                "exclude_default": False, "enabled": True, "host_ip": ""}]}
+        result = self.command("save", payload)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("webui_boot_", (self.root / "upstream.conf").read_text())
 
     def test_invalid_inputs_do_not_change_saved_rules(self):
         original = {"groups": ["office"], "servers": [
@@ -105,6 +157,36 @@ class UpstreamManagerTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("used by domain routing rules", result.stdout)
         self.assertEqual(json.loads((self.root / "upstream.json").read_text())["groups"], ["overseas"])
+
+    def test_group_specific_order_and_parallel_batches(self):
+        servers = [{"endpoint": ip, "groups": ["one", "two"], "exclude_default": False,
+                    "enabled": True, "host_ip": ""} for ip in ("1.1.1.1", "2.2.2.2", "3.3.3.3")]
+        payload = {"groups": ["one", "two"], "default_group": "one", "servers": servers,
+                   "group_order": {"one": ["3.3.3.3", "1.1.1.1", "2.2.2.2"],
+                                   "two": ["2.2.2.2", "3.3.3.3", "1.1.1.1"]},
+                   "group_parallel": {"one": 1, "two": 2}}
+        result = self.command("save", payload)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        rules = (self.root / "upstream.conf").read_text()
+        self.assertLess(rules.index("server 3.3.3.3"), rules.index("server 1.1.1.1"))
+        self.assertIn("-group-order one:1 -group two -group-order two:2", rules)
+        self.assertIn("server-group-parallel one 1\n", rules)
+        self.assertIn("server-group-parallel two 2\n", rules)
+        self.assertIn("server-group-parallel default 1\n", rules)
+        self.assertEqual(json.loads(self.command("show").stdout)["group_order"], payload["group_order"])
+
+    def test_invalid_group_order_and_parallel_count(self):
+        server = {"endpoint": "1.1.1.1", "groups": ["one"], "exclude_default": False,
+                  "enabled": True, "host_ip": ""}
+        base = {"groups": ["one"], "servers": [server]}
+        for patch in ({"group_order": {"one": []}},
+                      {"group_order": {"one": ["9.9.9.9"]}},
+                      {"group_parallel": {"one": 0}},
+                      {"group_parallel": {"one": 2}},
+                      {"group_parallel": {"one": True}},
+                      {"group_parallel": {"missing": 1}}):
+            with self.subTest(patch=patch):
+                self.assertNotEqual(self.command("save", {**base, **patch}).returncode, 0)
 
 
 if __name__ == "__main__":

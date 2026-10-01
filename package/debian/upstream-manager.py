@@ -2,6 +2,7 @@
 """Manage Web UI upstream servers without rewriting hand-maintained config."""
 
 import fcntl
+import hashlib
 import ipaddress
 import json
 import os
@@ -21,7 +22,16 @@ SCHEMES = {"udp", "tcp", "tls", "https", "quic", "h3", "http3"}
 
 
 def defaults():
-    return {"groups": [], "default_group": "", "servers": []}
+    return {"groups": [], "default_group": "", "bootstrap_dns": {},
+            "group_order": {}, "group_parallel": {}, "servers": []}
+
+
+def valid_ip(host):
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
 
 
 def valid_host(host):
@@ -61,8 +71,47 @@ def valid_endpoint(value):
     return value
 
 
+def valid_bootstrap_endpoint(value):
+    endpoint = valid_endpoint(value)
+    parsed = urllib.parse.urlsplit(endpoint if "://" in endpoint else "//" + endpoint)
+    if parsed.scheme not in ("", "udp"):
+        raise ValueError("Bootstrap DNS must use ordinary UDP DNS")
+    try:
+        ipaddress.ip_address(parsed.hostname)
+    except ValueError as error:
+        raise ValueError("Bootstrap DNS must use an IP address") from error
+    return endpoint
+
+
+def bootstrap_group(name):
+    return "webui_boot_" + hashlib.sha256(name.encode()).hexdigest()[:16]
+
+
+def bootstrap_routes(servers, bootstrap_dns):
+    host_addresses = {}
+    routes = {}
+    for server in servers:
+        if not server["enabled"] or server["host_ip"]:
+            continue
+        parsed = urllib.parse.urlsplit(server["endpoint"] if "://" in server["endpoint"]
+                                     else "//" + server["endpoint"])
+        host = parsed.hostname.rstrip(".").lower()
+        if valid_ip(host):
+            continue
+        addresses = {bootstrap_dns.get(group, "") for group in server["groups"]}
+        if len(addresses) > 1:
+            raise ValueError(f"Upstream hostname {host} belongs to groups with different bootstrap DNS settings")
+        address = next(iter(addresses), "")
+        if host in host_addresses and host_addresses[host] != address:
+            raise ValueError(f"Upstream hostname {host} belongs to groups with different bootstrap DNS settings")
+        host_addresses[host] = address
+        if address:
+            routes[host] = next(group for group in server["groups"] if bootstrap_dns.get(group) == address)
+    return routes
+
+
 def validate(raw):
-    if not isinstance(raw, dict) or set(raw) - {"groups", "default_group", "servers", "manual_servers"}:
+    if not isinstance(raw, dict) or set(raw) - {"groups", "default_group", "bootstrap_dns", "group_order", "group_parallel", "servers", "manual_servers"}:
         raise ValueError("Expected upstream groups and servers")
     groups = raw.get("groups", [])
     servers = raw.get("servers", [])
@@ -80,10 +129,20 @@ def validate(raw):
     default_group = raw.get("default_group", "")
     if not isinstance(default_group, str) or (default_group and default_group not in cleaned_groups):
         raise ValueError("Default DNS group must be an existing server group")
+    bootstrap_dns = raw.get("bootstrap_dns", {})
+    if not isinstance(bootstrap_dns, dict) or any(not isinstance(name, str) or name not in cleaned_groups
+                                                   for name in bootstrap_dns):
+        raise ValueError("Bootstrap DNS must belong to an existing server group")
+    cleaned_bootstrap = {}
+    for name, endpoint in bootstrap_dns.items():
+        if not isinstance(endpoint, str):
+            raise ValueError("Bootstrap DNS address must be text")
+        if endpoint:
+            cleaned_bootstrap[name] = valid_bootstrap_endpoint(endpoint)
     cleaned_servers = []
     seen = set()
     for server in servers:
-        if not isinstance(server, dict) or set(server) - {"endpoint", "groups", "exclude_default", "enabled", "host_ip"}:
+        if not isinstance(server, dict) or set(server) - {"endpoint", "groups", "exclude_default", "enabled", "host_ip", "bootstrap_dns"}:
             raise ValueError("Invalid DNS server entry")
         endpoint = valid_endpoint(server.get("endpoint"))
         if endpoint in seen:
@@ -98,7 +157,8 @@ def validate(raw):
             raise ValueError("Assign servers only to existing groups")
         exclude_default = server.get("exclude_default", False)
         enabled = server.get("enabled", True)
-        if not isinstance(exclude_default, bool) or not isinstance(enabled, bool):
+        if (not isinstance(exclude_default, bool) or not isinstance(enabled, bool)
+                or not isinstance(server.get("bootstrap_dns", False), bool)):
             raise ValueError("Server switches must be booleans")
         if enabled and exclude_default and not memberships:
             raise ValueError("An excluded server needs at least one group")
@@ -119,23 +179,75 @@ def validate(raw):
     if default_group and any(server["enabled"] and not server["groups"]
                              for server in cleaned_servers):
         raise ValueError("Assign each enabled server to a group when a default DNS group is selected")
-    return {"groups": cleaned_groups, "default_group": default_group, "servers": cleaned_servers}
+    group_order = raw.get("group_order", {})
+    group_parallel = raw.get("group_parallel", {})
+    if not isinstance(group_order, dict) or not isinstance(group_parallel, dict):
+        raise ValueError("Invalid group query settings")
+    cleaned_order = {}
+    cleaned_parallel = {}
+    for group in cleaned_groups:
+        members = [server["endpoint"] for server in cleaned_servers
+                   if server["enabled"] and group in server["groups"]]
+        order = group_order.get(group, members)
+        if (not isinstance(order, list) or len(order) != len(members)
+                or any(not isinstance(endpoint, str) for endpoint in order)
+                or set(order) != set(members)):
+            raise ValueError(f"Group {group} order must list every enabled server exactly once")
+        cleaned_order[group] = order
+        if group in group_parallel:
+            parallel = group_parallel[group]
+            if type(parallel) is not int or not 1 <= parallel <= min(len(members), 64):
+                raise ValueError(f"Group {group} parallel count must be between 1 and its server count")
+            if len(members) > 64:
+                raise ValueError(f"Group {group} exceeds the 64-server core limit")
+            cleaned_parallel[group] = parallel
+    if set(group_order) - set(cleaned_groups) or set(group_parallel) - set(cleaned_groups):
+        raise ValueError("Group query settings must belong to existing groups")
+    bootstrap_routes(cleaned_servers, cleaned_bootstrap)
+    return {"groups": cleaned_groups, "default_group": default_group,
+            "bootstrap_dns": cleaned_bootstrap, "group_order": cleaned_order,
+            "group_parallel": cleaned_parallel, "servers": cleaned_servers}
 
 
 def render(config):
     lines = ["# Managed by upstream-manager.py; edit through the Web UI.\n"]
-    for server in config["servers"]:
+    hostname_bootstrap = bootstrap_routes(config["servers"], config["bootstrap_dns"])
+    active_groups = set(hostname_bootstrap.values())
+    bootstrap_servers = {}
+    for name, endpoint in config["bootstrap_dns"].items():
+        if name in active_groups:
+            bootstrap_servers.setdefault(endpoint, []).append(name)
+    for endpoint, names in bootstrap_servers.items():
+        line = "server " + endpoint
+        for name in names:
+            line += " -group " + bootstrap_group(name)
+        lines.append(line + " -exclude-default-group\n")
+    default_order = (config["group_order"].get(config["default_group"], [])
+                     if config["default_group"] in config["group_parallel"] else [])
+    default_position = {endpoint: index for index, endpoint in enumerate(default_order)}
+    servers = sorted(config["servers"], key=lambda server: default_position.get(server["endpoint"], 1000 + config["servers"].index(server)))
+    group_position = {name: {endpoint: index + 1 for index, endpoint in enumerate(config["group_order"][name])}
+                      for name in config["group_parallel"]}
+    for server in servers:
         if not server["enabled"]:
             continue
         line = "server " + server["endpoint"]
         for group in server["groups"]:
             line += " -group " + group
+            if group in group_position and server["endpoint"] in group_position[group]:
+                line += f" -group-order {group}:{group_position[group][server['endpoint']]}"
         if (config["default_group"] not in server["groups"] if config["default_group"]
                 else server["exclude_default"]):
             line += " -exclude-default-group"
         if server["host_ip"]:
             line += " -host-ip " + server["host_ip"]
         lines.append(line + "\n")
+    for group, parallel in config["group_parallel"].items():
+        lines.append(f"server-group-parallel {group} {parallel}\n")
+    if config["default_group"] in config["group_parallel"]:
+        lines.append(f"server-group-parallel default {config['group_parallel'][config['default_group']]}\n")
+    for host, group in sorted(hostname_bootstrap.items()):
+        lines.append(f"priority-nameserver /-.{host}/ {bootstrap_group(group)}\n")
     return "".join(lines).encode()
 
 

@@ -21,6 +21,7 @@
 #include "include/utils.h"
 #include "server.h"
 #include "gtest/gtest.h"
+#include <atomic>
 
 class Group : public ::testing::Test
 {
@@ -28,6 +29,87 @@ class Group : public ::testing::Test
 	virtual void SetUp() {}
 	virtual void TearDown() {}
 };
+
+TEST_F(Group, ordered_upstreams_continue_until_ip)
+{
+	std::atomic<int> first_count{0};
+	std::atomic<int> second_count{0};
+	std::atomic<int> third_count{0};
+	smartdns::MockServer first;
+	smartdns::MockServer second;
+	smartdns::MockServer third;
+	smartdns::Server server;
+	ASSERT_TRUE(first.Start("udp://0.0.0.0:61071", [&](smartdns::ServerRequestContext *request) {
+		first_count++;
+		return smartdns::SERVER_REQUEST_SOA;
+	}));
+	ASSERT_TRUE(second.Start("udp://0.0.0.0:61072", [&](smartdns::ServerRequestContext *request) {
+		second_count++;
+		smartdns::MockServer::AddIP(request, request->domain, "1.2.3.4");
+		return smartdns::SERVER_REQUEST_OK;
+	}));
+	ASSERT_TRUE(third.Start("udp://0.0.0.0:61073", [&](smartdns::ServerRequestContext *request) {
+		third_count++;
+		smartdns::MockServer::AddIP(request, request->domain, "5.6.7.8");
+		return smartdns::SERVER_REQUEST_OK;
+	}));
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10);
+	ASSERT_TRUE(server.Start(R"""(bind [::]:60071
+server 127.0.0.1:61072 -group ordered -group-order ordered:2 -exclude-default-group
+server 127.0.0.1:61071 -group ordered -group-order ordered:1 -exclude-default-group
+server 127.0.0.1:61073 -group ordered -group-order ordered:3 -exclude-default-group
+server-group-parallel ordered 1
+nameserver /ordered.test/ordered
+speed-check-mode none
+)"""));
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("ordered.test", 60071));
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	EXPECT_EQ(first_count.load(), 1);
+	EXPECT_EQ(second_count.load(), 1);
+	EXPECT_EQ(third_count.load(), 0);
+}
+
+TEST_F(Group, ordered_upstreams_query_a_batch_in_parallel)
+{
+	std::atomic<int> first_count{0};
+	std::atomic<int> second_count{0};
+	std::atomic<int> third_count{0};
+	smartdns::MockServer first;
+	smartdns::MockServer second;
+	smartdns::MockServer third;
+	smartdns::Server server;
+	ASSERT_TRUE(first.Start("udp://0.0.0.0:61074", [&](smartdns::ServerRequestContext *) {
+		first_count++;
+		return smartdns::SERVER_REQUEST_SOA;
+	}));
+	ASSERT_TRUE(second.Start("udp://0.0.0.0:61075", [&](smartdns::ServerRequestContext *) {
+		second_count++;
+		return smartdns::SERVER_REQUEST_SOA;
+	}));
+	ASSERT_TRUE(third.Start("udp://0.0.0.0:61076", [&](smartdns::ServerRequestContext *request) {
+		third_count++;
+		smartdns::MockServer::AddIP(request, request->domain, "5.6.7.8");
+		return smartdns::SERVER_REQUEST_OK;
+	}));
+	server.MockPing(PING_TYPE_ICMP, "5.6.7.8", 60, 10);
+	ASSERT_TRUE(server.Start(R"""(bind [::]:60072
+server 127.0.0.1:61074 -group ordered -group-order ordered:1 -exclude-default-group
+server 127.0.0.1:61075 -group ordered -group-order ordered:2 -exclude-default-group
+server 127.0.0.1:61076 -group ordered -group-order ordered:3 -exclude-default-group
+server-group-parallel ordered 2
+nameserver /batch.test/ordered
+speed-check-mode none
+)"""));
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("batch.test", 60072));
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "5.6.7.8");
+	EXPECT_EQ(first_count.load(), 1);
+	EXPECT_EQ(second_count.load(), 1);
+	EXPECT_EQ(third_count.load(), 1);
+}
 
 TEST_F(Group, conf_file)
 {

@@ -7,11 +7,35 @@ import {
   Switch, TextField, Typography,
 } from '@mui/material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import AddIcon from '@mui/icons-material/Add';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { useTranslation } from 'react-i18next';
 import { type ManagedUpstreamServer, type UpstreamConfig, smartdnsServer } from '@/lib/backend/server';
 import { useUser } from '@/hooks/use-user';
 
-const emptyConfig: UpstreamConfig = { groups: [], default_group: '', servers: [] };
+const emptyConfig: UpstreamConfig = { groups: [], default_group: '', bootstrap_dns: {}, group_order: {}, group_parallel: {}, servers: [] };
+
+function orderedMembers(config: UpstreamConfig, group: string): string[] {
+  const members = config.servers.filter((server) => server.enabled && server.groups.includes(group)).map((server) => server.endpoint);
+  return [...(config.group_order?.[group] ?? []).filter((endpoint) => members.includes(endpoint)),
+    ...members.filter((endpoint) => !(config.group_order?.[group] ?? []).includes(endpoint))];
+}
+
+function normalizeConfig(config: UpstreamConfig): UpstreamConfig {
+  const group_order = Object.fromEntries(config.groups.map((group) => [group, orderedMembers(config, group)]));
+  const group_parallel = Object.fromEntries(Object.entries(config.group_parallel ?? {}).filter(([group]) => config.groups.includes(group))
+    .map(([group, count]) => [group, Math.max(1, Math.min(count, group_order[group]?.length || 1))]));
+  return { ...config, group_order, group_parallel };
+}
+const groupRowSx = {
+  display: 'grid',
+  gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(180px, 240px) minmax(240px, 1fr) 160px' },
+  alignItems: 'center',
+  gap: 1.5,
+  px: 2,
+  py: 1.5,
+};
 
 export function UpstreamManagement(): React.JSX.Element {
   const { t } = useTranslation();
@@ -19,13 +43,14 @@ export function UpstreamManagement(): React.JSX.Element {
   const [config, setConfig] = React.useState<UpstreamConfig>(emptyConfig);
   const [saved, setSaved] = React.useState<UpstreamConfig | null>(null);
   const [newGroup, setNewGroup] = React.useState('');
+  const [newBootstrap, setNewBootstrap] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [message, setMessage] = React.useState('');
 
   React.useEffect(() => {
     void smartdnsServer.GetUpstreamConfig().then(async (result) => {
-      if (result.data) { setConfig(result.data); setSaved(result.data); }
+      if (result.data) { const value = normalizeConfig(result.data); setConfig(value); setSaved(value); }
       if (result.error) {
         await checkSessionError?.(result.error);
         setError(smartdnsServer.getErrorMessage(result.error));
@@ -46,6 +71,9 @@ export function UpstreamManagement(): React.JSX.Element {
       return {
         ...previous,
         groups: previous.groups.map((group, row) => row === index ? name : group),
+        bootstrap_dns: Object.fromEntries(Object.entries(previous.bootstrap_dns ?? {}).map(([group, address]) => [group === oldName ? name : group, address])),
+        group_order: Object.fromEntries(Object.entries(previous.group_order ?? {}).map(([group, order]) => [group === oldName ? name : group, order])),
+        group_parallel: Object.fromEntries(Object.entries(previous.group_parallel ?? {}).map(([group, count]) => [group === oldName ? name : group, count])),
         default_group: previous.default_group === oldName ? name : previous.default_group,
         servers: previous.servers.map((server) => ({
           ...server,
@@ -65,6 +93,9 @@ export function UpstreamManagement(): React.JSX.Element {
       return {
         ...previous,
         groups: previous.groups.filter((_, row) => row !== index),
+        bootstrap_dns: Object.fromEntries(Object.entries(previous.bootstrap_dns ?? {}).filter(([group]) => group !== name)),
+        group_order: Object.fromEntries(Object.entries(previous.group_order ?? {}).filter(([group]) => group !== name)),
+        group_parallel: Object.fromEntries(Object.entries(previous.group_parallel ?? {}).filter(([group]) => group !== name)),
         servers: previous.servers.map((server) => ({
           ...server,
           groups: server.groups.filter((group) => group !== name),
@@ -75,12 +106,18 @@ export function UpstreamManagement(): React.JSX.Element {
 
   const addGroup = (): void => {
     const name = newGroup.trim();
+    const bootstrap = newBootstrap.trim();
     if (!name || config.groups.includes(name)) {
       setError(t('Enter a unique server group name.'));
       return;
     }
-    setConfig((previous) => ({ ...previous, groups: [...previous.groups, name] }));
+    setConfig((previous) => ({
+      ...previous,
+      groups: [...previous.groups, name],
+      bootstrap_dns: bootstrap ? { ...previous.bootstrap_dns, [name]: bootstrap } : previous.bootstrap_dns,
+    }));
     setNewGroup('');
+    setNewBootstrap('');
     setError('');
   };
 
@@ -94,7 +131,8 @@ export function UpstreamManagement(): React.JSX.Element {
   };
 
   const settings = (value: UpstreamConfig): string => JSON.stringify({
-    groups: value.groups, default_group: value.default_group, servers: value.servers,
+    groups: value.groups, default_group: value.default_group, bootstrap_dns: value.bootstrap_dns,
+    group_order: value.group_order, group_parallel: value.group_parallel, servers: value.servers,
   });
   const hasUnsavedChanges = saved === null || settings(config) !== settings(saved);
 
@@ -102,7 +140,7 @@ export function UpstreamManagement(): React.JSX.Element {
     setBusy(true);
     setError('');
     setMessage('');
-    const result = await smartdnsServer.SaveUpstreamConfig(config);
+    const result = await smartdnsServer.SaveUpstreamConfig(normalizeConfig(config));
     if (result.error) {
       await checkSessionError?.(result.error);
       setError(smartdnsServer.getErrorMessage(result.error));
@@ -124,15 +162,73 @@ export function UpstreamManagement(): React.JSX.Element {
         {error ? <Alert severity="error">{error}</Alert> : null}
         {message ? <Alert severity="success">{message}</Alert> : null}
 
-        <Typography variant="h6">{t('Server groups')}</Typography>
-        {config.groups.map((group, index) => <Stack key={index} direction="row" spacing={1} alignItems="center">
-          <TextField size="small" label={t('Group name')} value={group} onChange={(event) => renameGroup(index, event.target.value)} sx={{ minWidth: 220 }} />
-          <IconButton aria-label={t('Remove group')} onClick={() => removeGroup(index)}><DeleteOutlineIcon /></IconButton>
-        </Stack>)}
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-          <TextField size="small" label={t('New group name')} value={newGroup} onChange={(event) => setNewGroup(event.target.value)} sx={{ minWidth: 220 }} />
-          <Button variant="outlined" onClick={addGroup}>{t('Add group')}</Button>
-        </Stack>
+        <Box>
+          <Typography variant="h6">{t('Server groups')}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            {t('Set a plain UDP DNS IP for each group to resolve upstream hostnames. Leave it blank to use the existing method. Example: 1.1.1.1 or 1.1.1.1:53.')}
+          </Typography>
+        </Box>
+        <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden', maxWidth: 1100 }}>
+          {config.groups.map((group, index) => <Box key={index} sx={{ ...groupRowSx, borderBottom: '1px solid', borderColor: 'divider' }}>
+            <TextField fullWidth size="small" label={t('Group name')} value={group} onChange={(event) => renameGroup(index, event.target.value)} />
+            <TextField fullWidth size="small" label={t('Bootstrap DNS (optional)')} placeholder="1.1.1.1"
+              value={config.bootstrap_dns?.[group] ?? ''}
+              onChange={(event) => setConfig((previous) => ({ ...previous, bootstrap_dns: { ...previous.bootstrap_dns, [group]: event.target.value } }))} />
+            <IconButton aria-label={t('Remove group')} onClick={() => removeGroup(index)}
+              sx={{ justifySelf: 'end', color: 'text.secondary', '&:hover': { color: 'error.main' } }}>
+              <DeleteOutlineIcon />
+            </IconButton>
+          </Box>)}
+          <Box sx={{ ...groupRowSx, bgcolor: 'action.hover' }}>
+            <TextField fullWidth size="small" label={t('New group name')} value={newGroup} onChange={(event) => setNewGroup(event.target.value)} />
+            <TextField fullWidth size="small" label={t('Bootstrap DNS (optional)')} placeholder="1.1.1.1"
+              value={newBootstrap} onChange={(event) => setNewBootstrap(event.target.value)} />
+            <Button variant="outlined" startIcon={<AddIcon />} onClick={addGroup} sx={{ justifySelf: { xs: 'stretch', md: 'end' }, whiteSpace: 'nowrap' }}>
+              {t('Add group')}
+            </Button>
+          </Box>
+        </Box>
+
+        {config.groups.map((group) => {
+          const members = orderedMembers(config, group);
+          const count = config.group_parallel?.[group];
+          return <Box key={`order-${group}`} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2 }}>
+            <Stack spacing={1.5}>
+              <Typography variant="subtitle1">{group}: {t('Upstream query order')}</Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+                <FormControlLabel control={<Switch checked={count !== undefined} disabled={members.length === 0}
+                  onChange={(event) => setConfig((previous) => {
+                    const group_parallel = { ...previous.group_parallel };
+                    if (event.target.checked) group_parallel[group] = 1;
+                    else delete group_parallel[group];
+                    return { ...previous, group_parallel };
+                  })} />} label={t('Query in order until an IP is found')} />
+                {count !== undefined ? <TextField size="small" type="number" label={t('Servers queried in parallel')}
+                  value={count} inputProps={{ min: 1, max: members.length }} sx={{ width: 230 }}
+                  helperText={t('1 means strictly sequential; larger values query batches in order.')}
+                  onChange={(event) => setConfig((previous) => ({ ...previous, group_parallel: {
+                    ...previous.group_parallel, [group]: Math.max(1, Math.min(members.length, Number(event.target.value) || 1)),
+                  } }))} /> : null}
+              </Stack>
+              {members.map((endpoint, index) => <Stack key={endpoint} direction="row" spacing={1} alignItems="center">
+                <Typography variant="body2" sx={{ minWidth: 25 }}>{index + 1}.</Typography>
+                <Typography variant="body2" sx={{ flex: 1, overflowWrap: 'anywhere' }}>{endpoint}</Typography>
+                <IconButton size="small" disabled={index === 0} aria-label={`${t('Move up')} ${endpoint}`}
+                  onClick={() => setConfig((previous) => {
+                    const order = orderedMembers(previous, group);
+                    [order[index - 1], order[index]] = [order[index], order[index - 1]];
+                    return { ...previous, group_order: { ...previous.group_order, [group]: order } };
+                  })}><ArrowUpwardIcon fontSize="small" /></IconButton>
+                <IconButton size="small" disabled={index === members.length - 1} aria-label={`${t('Move down')} ${endpoint}`}
+                  onClick={() => setConfig((previous) => {
+                    const order = orderedMembers(previous, group);
+                    [order[index], order[index + 1]] = [order[index + 1], order[index]];
+                    return { ...previous, group_order: { ...previous.group_order, [group]: order } };
+                  })}><ArrowDownwardIcon fontSize="small" /></IconButton>
+              </Stack>)}
+            </Stack>
+          </Box>;
+        })}
 
         <FormControl sx={{ maxWidth: 400 }} size="small">
           <InputLabel id="default-dns-group-label">{t('Default DNS group')}</InputLabel>
@@ -151,13 +247,13 @@ export function UpstreamManagement(): React.JSX.Element {
         {config.servers.map((server, index) => <Card key={index} variant="outlined">
           <CardContent>
             <Stack spacing={1.5}>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ md: 'center' }}>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ md: 'flex-start' }}>
                 <TextField fullWidth label={t('DNS server address or URL')} value={server.endpoint}
                   onChange={(event) => updateServer(index, { endpoint: event.target.value })}
                   helperText={t('Examples: 1.1.1.1, tls://dns.google:853, https://dns.google/dns-query')} />
                 <TextField label={t('Host IP (optional)')} value={server.host_ip}
                   onChange={(event) => updateServer(index, { host_ip: event.target.value })}
-                  helperText={t('Use a bootstrap IP for a hostname-based server.')} sx={{ minWidth: 200 }} />
+                  helperText={t('Connect directly to this IP; leave blank to use the group bootstrap DNS.')} sx={{ minWidth: 200 }} />
                 <IconButton aria-label={t('Remove DNS server')} onClick={() => setConfig((previous) => ({
                   ...previous, servers: previous.servers.filter((_, row) => row !== index),
                 }))}><DeleteOutlineIcon /></IconButton>

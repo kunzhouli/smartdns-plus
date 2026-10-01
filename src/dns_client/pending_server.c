@@ -19,6 +19,7 @@
 #define _GNU_SOURCE
 
 #include "pending_server.h"
+#include "../dns_conf/nameserver.h"
 #include "group.h"
 #include "server_info.h"
 #include "wake_event.h"
@@ -413,8 +414,9 @@ void _dns_client_add_pending_servers(void)
 		int add_success = 0;
 		char *dnsserver_ip = NULL;
 
-		/* if has no bootstrap DNS, just call getaddrinfo to get address */
-		if (dns_client_has_bootstrap_dns == 0) {
+		/* A priority nameserver may resolve this host through an excluded IP-only group. */
+		/* Otherwise, fall back to getaddrinfo when no default bootstrap DNS exists. */
+		if (dns_client_has_bootstrap_dns == 0 && _config_priority_nameserver_match(pending->host) == NULL) {
 			list_del_init(&pending->retry_list);
 			_dns_client_server_pending_release(pending);
 			pending->retry_cnt++;

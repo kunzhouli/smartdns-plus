@@ -57,6 +57,9 @@ export interface ManagedUpstreamServer {
 export interface UpstreamConfig {
     groups: string[];
     default_group: string;
+    bootstrap_dns: Record<string, string>;
+    group_order: Record<string, string[]>;
+    group_parallel: Record<string, number>;
     servers: ManagedUpstreamServer[];
     manual_servers?: string[];
 }

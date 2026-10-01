@@ -27,6 +27,8 @@ extern "C" {
 #endif /*__cplusplus */
 
 int _dns_conf_get_group_set(const char *group_name, struct dns_servers *server);
+int _dns_conf_set_group_order(const char *group_name, struct dns_servers *server, int order);
+int _config_server_group_parallel(void *data, int argc, char *argv[]);
 
 struct dns_server_groups *_dns_conf_get_group(const char *group_name);
 
