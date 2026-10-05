@@ -102,7 +102,7 @@ class CloudflareManagerTest(unittest.TestCase):
         self.assertNotIn("test_url", config)
         self.assertFalse(config["schedule_enabled"])
 
-    def test_speedtest_uses_bundled_default_download_url(self):
+    def test_speedtest_skips_zero_speed_and_uses_cloudflare_download(self):
         networks = [ipaddress.ip_network("104.16.0.0/13")]
         binary = manager.ROOT / "fake-cfst"
         arguments = manager.ROOT / "arguments"
@@ -113,7 +113,8 @@ class CloudflareManagerTest(unittest.TestCase):
         binary.chmod(0o755)
         with patch.object(manager, "CFST", str(binary)):
             manager.speedtest(networks, 4, manager.defaults(), str(manager.ROOT))
-        self.assertNotIn("-url", arguments.read_text())
+        self.assertIn("-sl 0.01", arguments.read_text())
+        self.assertIn("-url https://speed.cloudflare.com/__down?bytes=99999999", arguments.read_text())
 
     def test_progress_frames_are_removed_from_live_and_existing_logs(self):
         sample = ("Starting\n" + "20 / 5956 [↖________________] 可用: 20  " * 300 +
@@ -230,6 +231,8 @@ class CloudflareManagerTest(unittest.TestCase):
         fake_cfst.write_text("#!/usr/bin/python3\n"
                              "import pathlib, sys\n"
                              "args = sys.argv\n"
+                             "assert args[args.index('-sl') + 1] == '0.01'\n"
+                             "assert args[args.index('-url') + 1] == 'https://speed.cloudflare.com/__down?bytes=99999999'\n"
                              "assert '104.16.0.0/13' in pathlib.Path(args[args.index('-f') + 1]).read_text()\n"
                              "pathlib.Path(args[args.index('-o') + 1]).write_text('104.16.1.2,2,2,0,10,12\\n')\n"
                              "print('remote measurement', flush=True)\n")

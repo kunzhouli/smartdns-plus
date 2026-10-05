@@ -28,6 +28,7 @@ LOCK = ROOT / "cloudflare.lock"
 LOG = ROOT / "cloudflare-run.log"
 CFST = os.environ.get("SMARTDNS_CFST_BIN", "/usr/lib/smartdns/cfst")
 REMOTE_COMMAND = "/usr/lib/smartdns/cloudflare-cfst-remote"
+DOWNLOAD_URL = "https://speed.cloudflare.com/__down?bytes=99999999"
 RANGES_URL = "https://api.cloudflare.com/client/v4/ips"
 TIME = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 PROGRESS = re.compile(r"\b\d+\s*/\s*\d+\s*\[[^\]\r\n]{1,200}\](?:\s*可用:\s*\d+)?")
@@ -290,7 +291,8 @@ def speedtest(networks, family, config, tempdir):
                 f"{config['remote_user']}@{config['remote_host']}", REMOTE_COMMAND, str(config["threads"])]
     else:
         args = [CFST, "-f", str(input_path), "-o", str(output_path), "-p", "0",
-                "-n", str(config["threads"]), "-t", "2", "-dn", "5", "-dt", "5", "-tl", "1000"]
+                "-n", str(config["threads"]), "-t", "2", "-dn", "5", "-dt", "5",
+                "-tl", "1000", "-sl", "0.01", "-url", DOWNLOAD_URL]
     if config["test_runner"] == "ssh":
         with input_path.open("rb") as source, output_path.open("wb") as results:
             returncode = run_logged_command(args, tempdir, source, results, True)

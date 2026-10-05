@@ -20,9 +20,9 @@ worker and keeps the previous selected IPs and rules. **Clear log** removes
 the visible run history; a test that is still running may append new lines.
 
 The feature starts disabled and makes no answer changes until a test finds a
-working IP with a positive download speed. CloudflareSpeedTest uses its built-in
-download URL. The Web UI shows both selected IPs, the last attempt, the last
-successful run, and errors.
+working IP with a positive download speed. CloudflareSpeedTest uses Cloudflare's
+speed test URL and continues past candidates with zero download speed. The Web UI
+shows both selected IPs, the last attempt, the last successful run, and errors.
 
 Settings are stored in `/etc/smartdns/cloudflare.json`, the selected IPs and
 ranges in `/etc/smartdns/cloudflare-state.json`, and generated rules in

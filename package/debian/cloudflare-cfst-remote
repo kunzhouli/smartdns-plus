@@ -43,7 +43,8 @@ if [ "$(wc -c < "$workdir/ips.txt")" -gt 65536 ]; then
 	exit 1
 fi
 "$CFST_BIN" -f "$workdir/ips.txt" -o "$workdir/result.csv" -p 0 \
-	-n "$1" -t 2 -dn 5 -dt 5 -tl 1000 1>&2 &
+	-n "$1" -t 2 -dn 5 -dt 5 -tl 1000 -sl 0.01 \
+	-url 'https://speed.cloudflare.com/__down?bytes=99999999' 1>&2 &
 child=$!
 wait "$child"
 child=
