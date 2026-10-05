@@ -14,6 +14,10 @@ enable them separately to choose a server-local run time and repeat interval in
 days. The timer checks the chosen time each minute when enabled; a failed test
 keeps the previous working IPs and rules. IPv4 and IPv6
 are measured separately. If IPv6 is unavailable, IPv4 can still update.
+The run log omits the animated per-IP progress frames and retains status and
+diagnostic lines. **Stop speed test** terminates the active local or remote
+worker and keeps the previous selected IPs and rules. **Clear log** removes
+the visible run history; a test that is still running may append new lines.
 
 The feature starts disabled and makes no answer changes until a test finds a
 working IP with a positive download speed. CloudflareSpeedTest uses its built-in

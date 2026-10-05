@@ -27,7 +27,15 @@ if [ ! -x "$CFST_BIN" ]; then
 fi
 
 workdir=$(mktemp -d)
-trap 'rm -rf -- "$workdir"' EXIT
+child=
+cleanup() {
+	if [ -n "$child" ]; then
+		kill "$child" 2>/dev/null || true
+		wait "$child" 2>/dev/null || true
+	fi
+	rm -rf -- "$workdir"
+}
+trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 head -c 65537 > "$workdir/ips.txt"
 if [ "$(wc -c < "$workdir/ips.txt")" -gt 65536 ]; then
@@ -35,7 +43,10 @@ if [ "$(wc -c < "$workdir/ips.txt")" -gt 65536 ]; then
 	exit 1
 fi
 "$CFST_BIN" -f "$workdir/ips.txt" -o "$workdir/result.csv" -p 0 \
-	-n "$1" -t 2 -dn 5 -dt 5 -tl 1000 1>&2
+	-n "$1" -t 2 -dn 5 -dt 5 -tl 1000 1>&2 &
+child=$!
+wait "$child"
+child=
 if [ ! -s "$workdir/result.csv" ] || [ "$(wc -c < "$workdir/result.csv")" -gt 1048576 ]; then
 	echo 'CloudflareSpeedTest produced no valid results' >&2
 	exit 1

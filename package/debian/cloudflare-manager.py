@@ -2,6 +2,7 @@
 """Schedule CloudflareSpeedTest and render SmartDNS response IP aliases."""
 
 import csv
+import codecs
 import datetime as dt
 import fcntl
 import ipaddress
@@ -9,10 +10,12 @@ import json
 import math
 import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -27,6 +30,14 @@ CFST = os.environ.get("SMARTDNS_CFST_BIN", "/usr/lib/smartdns/cfst")
 REMOTE_COMMAND = "/usr/lib/smartdns/cloudflare-cfst-remote"
 RANGES_URL = "https://api.cloudflare.com/client/v4/ips"
 TIME = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+PROGRESS = re.compile(r"\b\d+\s*/\s*\d+\s*\[[^\]\r\n]{1,200}\](?:\s*可用:\s*\d+)?")
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+ACTIVE_PROCESS = None
+
+
+class TestStopped(Exception):
+    def __init__(self):
+        super().__init__("Stopped by user")
 
 
 def defaults():
@@ -101,13 +112,46 @@ def log_event(message):
         output.write(f"[{dt.datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
 
 
+def clean_log(text):
+    text = ANSI.sub("", PROGRESS.sub("", text))
+    return "\n".join(line.strip() for line in text.replace("\r", "\n").splitlines() if line.strip())
+
+
 def read_log():
     if not LOG.exists():
         return ""
     with LOG.open("rb") as source:
         size = source.seek(0, os.SEEK_END)
-        source.seek(max(0, size - 65536))
-        return source.read().decode("utf-8", errors="replace")
+        source.seek(max(0, size - 2 * 1024 * 1024))
+        data = source.read().decode("utf-8", errors="replace")
+        if size > 2 * 1024 * 1024:
+            data = data.partition("\n")[2]
+        return clean_log(data)[-65536:]
+
+
+def stream_log(source):
+    """Keep diagnostic lines while dropping CloudflareSpeedTest's animated progress."""
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    pending = ""
+    with LOG.open("a", encoding="utf-8") as output:
+        while chunk := source.read(4096):
+            pending += decoder.decode(chunk)
+            while "\n" in pending:
+                line, pending = pending.split("\n", 1)
+                line = clean_log(line)
+                if line:
+                    output.write(line + "\n")
+                    output.flush()
+            if len(pending) > 8192:
+                pending = pending[-512:]
+                match = PROGRESS.search(pending)
+                if match:
+                    pending = pending[match.start():]
+        pending += decoder.decode(b"", final=True)
+        line = clean_log(pending)
+        if line:
+            output.write(line + "\n")
+            output.flush()
 
 
 def process_alive(pid):
@@ -122,6 +166,48 @@ def process_alive(pid):
         return True
     except OSError:
         return False
+
+
+def is_manager_process(pid):
+    try:
+        args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+    except OSError:
+        return False
+    return os.fsencode(Path(__file__).resolve()) in args and any(
+        arg in (b"run", b"run-restart", b"scheduled") for arg in args)
+
+
+def stop_test():
+    state = read_state()
+    pid = state.get("run_pid")
+    if not state.get("running") or not process_alive(pid):
+        return {"changed": False, **status()}
+    if not is_manager_process(pid):
+        raise ValueError("Cannot safely identify the running speed test")
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(100):
+        if not process_alive(pid):
+            break
+        time.sleep(0.05)
+    if process_alive(pid):
+        raise ValueError("Timed out stopping the speed test")
+    state = read_state()
+    if state.get("run_pid") == pid and state.get("running"):
+        state["running"] = False
+        state.pop("run_pid", None)
+        state["last_error"] = ""
+        save_json(STATE, state)
+        log_event("Cloudflare speed test stopped by user")
+    return {"changed": True, **status()}
+
+
+def handle_stop(_signum, _frame):
+    if ACTIVE_PROCESS is not None and ACTIVE_PROCESS.poll() is None:
+        try:
+            os.killpg(ACTIVE_PROCESS.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    raise TestStopped()
 
 
 def read_ranges():
@@ -168,6 +254,31 @@ def runner_available(config):
     return os.access(CFST, os.X_OK)
 
 
+def run_logged_command(args, tempdir, source, results, remote):
+    global ACTIVE_PROCESS
+    with subprocess.Popen(args, cwd=tempdir, stdin=source,
+                          stdout=results if remote else subprocess.PIPE,
+                          stderr=subprocess.PIPE if remote else subprocess.STDOUT,
+                          start_new_session=True) as process:
+        ACTIVE_PROCESS = process
+        reader = threading.Thread(target=stream_log,
+                                  args=(process.stderr if remote else process.stdout,), daemon=True)
+        reader.start()
+        try:
+            returncode = process.wait(timeout=600)
+        except BaseException:
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            raise
+        finally:
+            ACTIVE_PROCESS = None
+            reader.join(timeout=5)
+        return returncode
+
+
 def speedtest(networks, family, config, tempdir):
     input_path = Path(tempdir) / f"ips-v{family}.txt"
     output_path = Path(tempdir) / f"result-v{family}.csv"
@@ -180,16 +291,13 @@ def speedtest(networks, family, config, tempdir):
     else:
         args = [CFST, "-f", str(input_path), "-o", str(output_path), "-p", "0",
                 "-n", str(config["threads"]), "-t", "2", "-dn", "5", "-dt", "5", "-tl", "1000"]
-    with LOG.open("a", encoding="utf-8") as output:
-        if config["test_runner"] == "ssh":
-            with input_path.open("rb") as source, output_path.open("wb") as results:
-                done = subprocess.run(args, cwd=tempdir, stdin=source,
-                                      stdout=results, stderr=output, timeout=600)
-        else:
-            done = subprocess.run(args, cwd=tempdir, stdin=subprocess.DEVNULL,
-                                  stdout=output, stderr=subprocess.STDOUT, timeout=600)
-    if done.returncode:
-        raise ValueError(f"CloudflareSpeedTest exited with status {done.returncode}")
+    if config["test_runner"] == "ssh":
+        with input_path.open("rb") as source, output_path.open("wb") as results:
+            returncode = run_logged_command(args, tempdir, source, results, True)
+    else:
+        returncode = run_logged_command(args, tempdir, subprocess.DEVNULL, None, False)
+    if returncode:
+        raise ValueError(f"CloudflareSpeedTest exited with status {returncode}")
     return select_best(output_path, networks, family)
 
 
@@ -224,6 +332,7 @@ def status():
 
 
 def run_test(config, state):
+    previous_handler = signal.signal(signal.SIGTERM, handle_stop)
     LOG.write_text("")
     log_event("Cloudflare speed test started")
     state["running"] = True
@@ -259,6 +368,14 @@ def run_test(config, state):
         save_json(STATE, state)
         log_event("Cloudflare speed test completed")
         return {"changed": True, **status()}
+    except TestStopped:
+        state = read_state()
+        state["last_error"] = ""
+        state["running"] = False
+        state.pop("run_pid", None)
+        save_json(STATE, state)
+        log_event("Cloudflare speed test stopped by user")
+        raise
     except (OSError, ValueError) as error:
         state["last_error"] = str(error)
         state["running"] = False
@@ -266,6 +383,8 @@ def run_test(config, state):
         save_json(STATE, state)
         log_event(f"Cloudflare speed test failed: {error}")
         raise
+    finally:
+        signal.signal(signal.SIGTERM, previous_handler)
 
 
 def due(config, state):
@@ -280,12 +399,17 @@ def due(config, state):
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ("show", "save", "start", "run", "run-restart", "scheduled"):
-        raise ValueError("Usage: cloudflare-manager.py show|save|start|run|scheduled")
+    if len(sys.argv) != 2 or sys.argv[1] not in ("show", "save", "start", "stop", "clear-log", "run", "run-restart", "scheduled"):
+        raise ValueError("Usage: cloudflare-manager.py show|save|start|stop|clear-log|run|scheduled")
     ROOT.mkdir(mode=0o755, parents=True, exist_ok=True)
     if sys.argv[1] == "show":
         return status()
     command = sys.argv[1]
+    if command == "clear-log":
+        LOG.write_text("")
+        return {"changed": True, **status()}
+    if command == "stop":
+        return stop_test()
     with LOCK.open("a+b") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | (fcntl.LOCK_NB if command == "start" else 0))
@@ -327,6 +451,6 @@ def main():
 if __name__ == "__main__":
     try:
         print(json.dumps(main()))
-    except (OSError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired) as error:
+    except (OSError, ValueError, TestStopped, json.JSONDecodeError, subprocess.TimeoutExpired) as error:
         print(json.dumps({"error": str(error)}))
         sys.exit(1)

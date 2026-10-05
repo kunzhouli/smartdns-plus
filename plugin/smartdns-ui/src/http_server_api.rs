@@ -111,6 +111,8 @@ impl API {
         api.register(Method::GET, "/api/cloudflare/config", true, APIRoute!(API::api_cloudflare_get));
         api.register(Method::PUT, "/api/cloudflare/config", true, APIRoute!(API::api_cloudflare_save));
         api.register(Method::POST, "/api/cloudflare/run", true, APIRoute!(API::api_cloudflare_run));
+        api.register(Method::POST, "/api/cloudflare/stop", true, APIRoute!(API::api_cloudflare_stop));
+        api.register(Method::DELETE, "/api/cloudflare/log", true, APIRoute!(API::api_cloudflare_clear_log));
         api.register(Method::GET, "/api/stats/top/client", true, APIRoute!(API::api_stats_get_top_client));
         api.register(Method::GET, "/api/stats/top/domain", true, APIRoute!(API::api_stats_get_top_domain));
         api.register(Method::GET, "/api/stats/metrics", true, APIRoute!(API::api_stats_get_metrics));
@@ -355,6 +357,20 @@ impl API {
         _this: Arc<HttpServer>, _param: APIRouteParam, _req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
         let result = API::run_manager("/usr/lib/smartdns/cloudflare-manager.py", "start", None).await?;
+        API::response_build(StatusCode::OK, result)
+    }
+
+    async fn api_cloudflare_stop(
+        _this: Arc<HttpServer>, _param: APIRouteParam, _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let result = API::run_manager("/usr/lib/smartdns/cloudflare-manager.py", "stop", None).await?;
+        API::response_build(StatusCode::OK, result)
+    }
+
+    async fn api_cloudflare_clear_log(
+        _this: Arc<HttpServer>, _param: APIRouteParam, _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let result = API::run_manager("/usr/lib/smartdns/cloudflare-manager.py", "clear-log", None).await?;
         API::response_build(StatusCode::OK, result)
     }
 

@@ -2,8 +2,11 @@
 
 import importlib.util
 import fcntl
+import io
 import ipaddress
+import multiprocessing
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -101,12 +104,96 @@ class CloudflareManagerTest(unittest.TestCase):
 
     def test_speedtest_uses_bundled_default_download_url(self):
         networks = [ipaddress.ip_network("104.16.0.0/13")]
-        with patch.object(manager.subprocess, "run") as run, \
-                patch.object(manager, "select_best", return_value="104.16.1.1"):
-            run.return_value.returncode = 0
+        binary = manager.ROOT / "fake-cfst"
+        arguments = manager.ROOT / "arguments"
+        binary.write_text("#!/usr/bin/python3\n"
+                          "import pathlib, sys\n"
+                          f"pathlib.Path({str(arguments)!r}).write_text(' '.join(sys.argv))\n"
+                          "pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('104.16.1.1,2,2,0,10,12\\n')\n")
+        binary.chmod(0o755)
+        with patch.object(manager, "CFST", str(binary)):
             manager.speedtest(networks, 4, manager.defaults(), str(manager.ROOT))
-        args = run.call_args.args[0]
-        self.assertNotIn("-url", args)
+        self.assertNotIn("-url", arguments.read_text())
+
+    def test_progress_frames_are_removed_from_live_and_existing_logs(self):
+        sample = ("Starting\n" + "20 / 5956 [↖________________] 可用: 20  " * 300 +
+                  "\nDownload\n" + "2 / 5 [↗________________]  " * 100 + "\nFailed\n")
+        manager.stream_log(io.BytesIO(sample.encode()))
+        self.assertEqual(manager.read_log(), "Starting\nDownload\nFailed")
+        manager.LOG.write_text(sample)
+        self.assertEqual(manager.read_log(), "Starting\nDownload\nFailed")
+
+    def test_stop_terminates_worker_and_keeps_previous_rules(self):
+        config = {**manager.defaults(), "enabled": True, "ipv6_enabled": False}
+        manager.save_json(manager.CONFIG, config)
+        manager.RULES.write_text("previous rules\n")
+        marker = manager.ROOT / "worker-pid"
+        binary = manager.ROOT / "slow-cfst"
+        binary.write_text("#!/usr/bin/python3\n"
+                          "import os, pathlib, time\n"
+                          f"pathlib.Path({str(marker)!r}).write_text(str(os.getpid()))\n"
+                          "time.sleep(30)\n")
+        binary.chmod(0o755)
+        networks = {4: [ipaddress.ip_network("104.16.0.0/13")],
+                    6: [ipaddress.ip_network("2606:4700::/32")]}
+
+        def run_slow_test():
+            with patch.object(manager, "CFST", str(binary)), \
+                    patch.object(manager, "read_ranges", return_value=networks):
+                try:
+                    manager.run_test(config, {})
+                except manager.TestStopped:
+                    pass
+
+        worker = multiprocessing.get_context("fork").Process(target=run_slow_test)
+        worker.start()
+        self.addCleanup(lambda: worker.is_alive() and worker.kill())
+        deadline = time.monotonic() + 5
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(marker.exists())
+        cfst_pid = int(marker.read_text())
+        with patch.object(manager, "is_manager_process", return_value=True):
+            result = manager.stop_test()
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive())
+        self.assertFalse(manager.process_alive(cfst_pid))
+        self.assertFalse(result["running"])
+        self.assertEqual(manager.RULES.read_text(), "previous rules\n")
+        self.assertIn("stopped by user", manager.read_log())
+
+    def test_clear_log_does_not_change_selected_ip(self):
+        manager.LOG.write_text("old log\n")
+        manager.save_json(manager.STATE, {"best_v4": "104.16.1.1"})
+        with patch.object(sys, "argv", [str(SOURCE), "clear-log"]):
+            result = manager.main()
+        self.assertEqual(result["log"], "")
+        self.assertEqual(manager.read_state()["best_v4"], "104.16.1.1")
+
+    def test_remote_helper_stops_its_speedtest_child(self):
+        marker = manager.ROOT / "remote-worker-pid"
+        binary = manager.ROOT / "slow-remote-cfst"
+        binary.write_text("#!/usr/bin/python3\n"
+                          "import os, pathlib, time\n"
+                          f"pathlib.Path({str(marker)!r}).write_text(str(os.getpid()))\n"
+                          "time.sleep(30)\n")
+        binary.chmod(0o755)
+        helper = subprocess.Popen([str(REMOTE), "1"], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  env={**os.environ, "SMARTDNS_CFST_BIN": str(binary)})
+        self.addCleanup(lambda: helper.poll() is None and helper.kill())
+        self.addCleanup(helper.stdout.close)
+        self.addCleanup(helper.stderr.close)
+        helper.stdin.write(b"104.16.0.0/13\n")
+        helper.stdin.close()
+        deadline = time.monotonic() + 5
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(marker.exists())
+        cfst_pid = int(marker.read_text())
+        helper.send_signal(signal.SIGTERM)
+        helper.wait(timeout=5)
+        self.assertFalse(manager.process_alive(cfst_pid))
 
     def test_speedtest_output_is_visible_before_completion(self):
         binary = manager.ROOT / "fake-cfst"

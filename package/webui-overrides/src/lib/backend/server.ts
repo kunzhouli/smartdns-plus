@@ -394,6 +394,14 @@ class SmartDNSAPI {
         return this.server.fetch<CloudflareConfig>('/api/cloudflare/run', 'POST', {}, {});
     }
 
+    async StopCloudflareSpeedTest(): Promise<FetchResponse<CloudflareConfig>> {
+        return this.server.fetch<CloudflareConfig>('/api/cloudflare/stop', 'POST', {}, {});
+    }
+
+    async ClearCloudflareLog(): Promise<FetchResponse<CloudflareConfig>> {
+        return this.server.fetch<CloudflareConfig>('/api/cloudflare/log', 'DELETE', {}, {});
+    }
+
     setSignOut(signOut: () => Promise<{ error?: string }>): void {
         this.server.setSignOut(signOut);
     }

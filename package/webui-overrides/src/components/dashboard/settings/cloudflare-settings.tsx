@@ -58,15 +58,25 @@ export function CloudflareSettings(): React.JSX.Element {
     setConfig((previous) => ({ ...previous, [key]: value }));
   };
 
-  const run = async (action: 'save' | 'test'): Promise<void> => {
+  const run = async (action: 'save' | 'test' | 'stop' | 'clear'): Promise<void> => {
     setBusy(true);
     setError('');
     setMessage('');
-    const result = action === 'save' ? await smartdnsServer.SaveCloudflareConfig(config) : await smartdnsServer.RunCloudflareSpeedTest();
+    const result = action === 'save' ? await smartdnsServer.SaveCloudflareConfig(config)
+      : action === 'test' ? await smartdnsServer.RunCloudflareSpeedTest()
+      : action === 'stop' ? await smartdnsServer.StopCloudflareSpeedTest()
+      : await smartdnsServer.ClearCloudflareLog();
     if (result.error) setError(smartdnsServer.getErrorMessage(result.error));
     else {
-      if (result.data) { setConfig(result.data); setSaved(result.data); wasRunning.current = Boolean(result.data.running); }
-      setMessage(t(action === 'save' ? 'Cloudflare settings saved.' : 'Cloudflare speed test started.'));
+      const data = result.data;
+      if (data) {
+        if (action === 'save' || action === 'test') { setConfig(data); setSaved(data); }
+        else setConfig((previous) => ({ ...previous, running: data.running, log: data.log,
+          last_error: data.last_error }));
+        wasRunning.current = Boolean(data.running);
+      }
+      setMessage(t(action === 'save' ? 'Cloudflare settings saved.' : action === 'test' ? 'Cloudflare speed test started.'
+        : action === 'stop' ? 'Cloudflare speed test stopped.' : 'Run log cleared.'));
     }
     setBusy(false);
   };
@@ -106,6 +116,8 @@ export function CloudflareSettings(): React.JSX.Element {
     <Stack direction="row" spacing={1} alignItems="center">
       <Button variant="contained" disabled={busy || config.running} onClick={() => void run('save')}>{t('Save')}</Button>
       <Button variant="outlined" disabled={busy || config.running || dirty || !config.cfst_available} onClick={() => void run('test')}>{t('Run speed test now')}</Button>
+      <Button variant="outlined" color="warning" disabled={busy || !config.running} onClick={() => void run('stop')}>{t('Stop speed test')}</Button>
+      <Button variant="text" disabled={busy || !config.log} onClick={() => void run('clear')}>{t('Clear log')}</Button>
       {busy || config.running ? <CircularProgress size={20} /> : null}
     </Stack>
     {dirty ? <Typography variant="caption">{t('Save settings before testing.')}</Typography> : null}
