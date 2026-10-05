@@ -68,7 +68,8 @@ build()
 	chmod 0755 $ROOT/usr/lib/smartdns/upstream-manager.py
 	chmod 0755 $ROOT/usr/lib/smartdns/domain-routes-manager.py
 	cp $CURR_DIR/cloudflare-scheduled $ROOT/usr/lib/smartdns/
-	chmod 0755 $ROOT/usr/lib/smartdns/cloudflare-manager.py $ROOT/usr/lib/smartdns/cloudflare-scheduled
+	cp $CURR_DIR/cloudflare-cfst-remote $ROOT/usr/lib/smartdns/
+	chmod 0755 $ROOT/usr/lib/smartdns/cloudflare-manager.py $ROOT/usr/lib/smartdns/cloudflare-scheduled $ROOT/usr/lib/smartdns/cloudflare-cfst-remote
 	cp $CURR_DIR/cloudflare-speedtest.service $ROOT/lib/systemd/system/smartdns-cloudflare-speedtest.service
 	cp $CURR_DIR/cloudflare-speedtest.timer $ROOT/lib/systemd/system/smartdns-cloudflare-speedtest.timer
 	case "$ARCH" in

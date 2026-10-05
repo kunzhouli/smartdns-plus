@@ -39,6 +39,11 @@ export interface CloudflareConfig {
     interval_days: number;
     ipv6_enabled: boolean;
     threads: number;
+    test_runner: 'local' | 'ssh';
+    remote_host: string;
+    remote_user: string;
+    remote_port: number;
+    remote_key: string;
     best_v4?: string;
     best_v6?: string;
     last_attempt?: number;

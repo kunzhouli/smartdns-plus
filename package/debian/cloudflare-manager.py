@@ -9,6 +9,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,13 +24,16 @@ RULES = ROOT / "cloudflare.conf"
 LOCK = ROOT / "cloudflare.lock"
 LOG = ROOT / "cloudflare-run.log"
 CFST = os.environ.get("SMARTDNS_CFST_BIN", "/usr/lib/smartdns/cfst")
+REMOTE_COMMAND = "/usr/lib/smartdns/cloudflare-cfst-remote"
 RANGES_URL = "https://api.cloudflare.com/client/v4/ips"
 TIME = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 
 
 def defaults():
     return {"enabled": False, "schedule_enabled": False, "run_time": "03:00", "interval_days": 1,
-            "ipv6_enabled": True, "threads": 40}
+            "ipv6_enabled": True, "threads": 40, "test_runner": "local",
+            "remote_host": "", "remote_user": "cfst", "remote_port": 22,
+            "remote_key": "/etc/smartdns/cfst-ssh-key"}
 
 
 def validate(raw):
@@ -45,6 +49,19 @@ def validate(raw):
         raise ValueError("interval_days must be between 1 and 365")
     if type(config["threads"]) is not int or not 1 <= config["threads"] <= 200:
         raise ValueError("threads must be between 1 and 200")
+    if config["test_runner"] not in ("local", "ssh"):
+        raise ValueError("test_runner must be local or ssh")
+    if not isinstance(config["remote_host"], str) or (config["remote_host"] and
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.:-]*", config["remote_host"])):
+        raise ValueError("Invalid remote host")
+    if config["test_runner"] == "ssh" and not config["remote_host"]:
+        raise ValueError("Remote host is required for SSH speed tests")
+    if not isinstance(config["remote_user"], str) or not re.fullmatch(r"[a-z_][a-z0-9_-]*", config["remote_user"]):
+        raise ValueError("Invalid remote user")
+    if type(config["remote_port"]) is not int or not 1 <= config["remote_port"] <= 65535:
+        raise ValueError("Invalid remote SSH port")
+    if not isinstance(config["remote_key"], str) or not config["remote_key"].startswith("/") or any(c in config["remote_key"] for c in "\r\n\0"):
+        raise ValueError("Remote SSH key must be an absolute path")
     return config
 
 
@@ -145,15 +162,32 @@ def select_best(csv_path, networks, family):
     raise ValueError(f"CloudflareSpeedTest found no usable IPv{family} address")
 
 
-def speedtest(networks, family, threads, tempdir):
+def runner_available(config):
+    if config["test_runner"] == "ssh":
+        return bool(shutil.which("ssh") and os.access(config["remote_key"], os.R_OK))
+    return os.access(CFST, os.X_OK)
+
+
+def speedtest(networks, family, config, tempdir):
     input_path = Path(tempdir) / f"ips-v{family}.txt"
     output_path = Path(tempdir) / f"result-v{family}.csv"
     input_path.write_text("\n".join(str(network) for network in networks) + "\n")
-    args = [CFST, "-f", str(input_path), "-o", str(output_path), "-p", "0",
-            "-n", str(threads), "-t", "2", "-dn", "5", "-dt", "5", "-tl", "1000"]
+    if config["test_runner"] == "ssh":
+        args = ["ssh", "-T", "-i", config["remote_key"], "-p", str(config["remote_port"]),
+                "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+                "-o", "ConnectTimeout=10", "-o", "UserKnownHostsFile=/etc/smartdns/cfst-known-hosts",
+                f"{config['remote_user']}@{config['remote_host']}", REMOTE_COMMAND, str(config["threads"])]
+    else:
+        args = [CFST, "-f", str(input_path), "-o", str(output_path), "-p", "0",
+                "-n", str(config["threads"]), "-t", "2", "-dn", "5", "-dt", "5", "-tl", "1000"]
     with LOG.open("a", encoding="utf-8") as output:
-        done = subprocess.run(args, cwd=tempdir, stdin=subprocess.DEVNULL,
-                              stdout=output, stderr=subprocess.STDOUT, timeout=600)
+        if config["test_runner"] == "ssh":
+            with input_path.open("rb") as source, output_path.open("wb") as results:
+                done = subprocess.run(args, cwd=tempdir, stdin=source,
+                                      stdout=results, stderr=output, timeout=600)
+        else:
+            done = subprocess.run(args, cwd=tempdir, stdin=subprocess.DEVNULL,
+                                  stdout=output, stderr=subprocess.STDOUT, timeout=600)
     if done.returncode:
         raise ValueError(f"CloudflareSpeedTest exited with status {done.returncode}")
     return select_best(output_path, networks, family)
@@ -185,7 +219,8 @@ def status():
     state = read_state()
     state["running"] = bool(state.get("running") and process_alive(state.get("run_pid")))
     state.pop("run_pid", None)
-    return {**read_config(), **state, "log": read_log(), "cfst_available": os.access(CFST, os.X_OK)}
+    config = read_config()
+    return {**config, **state, "log": read_log(), "cfst_available": runner_available(config)}
 
 
 def run_test(config, state):
@@ -206,7 +241,7 @@ def run_test(config, state):
                     continue
                 try:
                     log_event(f"Testing IPv{family}")
-                    best = speedtest(ranges[family], family, config["threads"], tempdir)
+                    best = speedtest(ranges[family], family, config, tempdir)
                     log_event(f"IPv{family} selected: {best}")
                     state[f"best_v{family}"] = best
                     state[f"ranges_v{family}"] = [str(network) for network in ranges[family]]
@@ -265,8 +300,8 @@ def main():
         if command == "start":
             if state.get("running") and process_alive(state.get("run_pid")):
                 raise ValueError("Cloudflare speed test is already running")
-            if not os.access(CFST, os.X_OK):
-                raise ValueError("CloudflareSpeedTest binary is unavailable")
+            if not runner_available(config):
+                raise ValueError("CloudflareSpeedTest runner is unavailable")
             child = subprocess.Popen([sys.executable, __file__, "run-restart"],
                                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL, start_new_session=True)

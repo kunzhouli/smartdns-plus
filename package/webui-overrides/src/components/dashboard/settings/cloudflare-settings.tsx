@@ -1,17 +1,20 @@
 'use client';
 
 import * as React from 'react';
-import { Alert, Box, Button, CircularProgress, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, FormControlLabel, MenuItem, Stack, Switch, TextField, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import { CloudflareConfig, smartdnsServer } from '@/lib/backend/server';
 
 const defaults: CloudflareConfig = {
   enabled: false, schedule_enabled: false, run_time: '03:00', interval_days: 1, ipv6_enabled: true, threads: 40,
+  test_runner: 'local', remote_host: '', remote_user: 'cfst', remote_port: 22, remote_key: '/etc/smartdns/cfst-ssh-key',
 };
 
 function settings(value: CloudflareConfig): string {
   return JSON.stringify({ enabled: value.enabled, schedule_enabled: value.schedule_enabled, run_time: value.run_time,
-    interval_days: value.interval_days, ipv6_enabled: value.ipv6_enabled, threads: value.threads });
+    interval_days: value.interval_days, ipv6_enabled: value.ipv6_enabled, threads: value.threads,
+    test_runner: value.test_runner, remote_host: value.remote_host, remote_user: value.remote_user,
+    remote_port: value.remote_port, remote_key: value.remote_key });
 }
 
 export function CloudflareSettings(): React.JSX.Element {
@@ -75,7 +78,7 @@ export function CloudflareSettings(): React.JSX.Element {
     <Typography variant="body2">{t('When an A or AAAA answer belongs to a Cloudflare IP range, return the fastest measured IP of the same family. Other answers stay unchanged.')}</Typography>
     {error ? <Alert severity="error">{error}</Alert> : null}
     {message ? <Alert severity="success">{message}</Alert> : null}
-    {config.cfst_available ? null : <Alert severity="warning">{t('CloudflareSpeedTest binary is unavailable on this server.')}</Alert>}
+    {config.cfst_available ? null : <Alert severity="warning">{t('CloudflareSpeedTest runner is unavailable.')}</Alert>}
     <FormControlLabel control={<Switch checked={config.enabled} onChange={(event) => change('enabled', event.target.checked)} />} label={t('Enable Cloudflare acceleration')} />
     <FormControlLabel control={<Switch checked={config.schedule_enabled} onChange={(event) => change('schedule_enabled', event.target.checked)} />} label={t('Run automatically on a schedule')} />
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -83,6 +86,19 @@ export function CloudflareSettings(): React.JSX.Element {
       <TextField disabled={!config.schedule_enabled} label={t('Repeat every (days)')} type="number" value={config.interval_days} onChange={(event) => change('interval_days', Number(event.target.value))} inputProps={{ min: 1, max: 365 }} />
       <TextField label={t('Test threads')} type="number" value={config.threads} onChange={(event) => change('threads', Number(event.target.value))} inputProps={{ min: 1, max: 200 }} />
     </Stack>
+    <TextField select label={t('Speed test runner')} value={config.test_runner} onChange={(event) => change('test_runner', event.target.value)}>
+      <MenuItem value="local">{t('This server')}</MenuItem>
+      <MenuItem value="ssh">{t('Direct-connect SSH helper')}</MenuItem>
+    </TextField>
+    {config.test_runner === 'ssh' ? <>
+      <Typography variant="body2">{t('Only the SSH helper needs to bypass Passwall. Keep this server on its existing proxy rule.')}</Typography>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <TextField fullWidth label={t('Helper host')} value={config.remote_host} onChange={(event) => change('remote_host', event.target.value)} />
+        <TextField label={t('SSH user')} value={config.remote_user} onChange={(event) => change('remote_user', event.target.value)} />
+        <TextField label={t('SSH port')} type="number" value={config.remote_port} onChange={(event) => change('remote_port', Number(event.target.value))} inputProps={{ min: 1, max: 65535 }} />
+      </Stack>
+      <TextField fullWidth label={t('SSH private key path')} value={config.remote_key} onChange={(event) => change('remote_key', event.target.value)} />
+    </> : null}
     <FormControlLabel control={<Switch checked={config.ipv6_enabled} onChange={(event) => change('ipv6_enabled', event.target.checked)} />} label={t('Measure IPv6 too')} />
     <Typography variant="body2">{t('Best IPv4')}: {config.best_v4 || '—'} · {t('Best IPv6')}: {config.best_v6 || '—'}</Typography>
     <Typography variant="body2">{t('Last attempt')}: {date(config.last_attempt)} · {t('Last success')}: {date(config.last_success)}</Typography>

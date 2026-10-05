@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "package/debian/cloudflare-manager.py"
+REMOTE = SOURCE.with_name("cloudflare-cfst-remote")
 SPEC = importlib.util.spec_from_file_location("cloudflare_manager", SOURCE)
 manager = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(manager)
@@ -103,7 +104,7 @@ class CloudflareManagerTest(unittest.TestCase):
         with patch.object(manager.subprocess, "run") as run, \
                 patch.object(manager, "select_best", return_value="104.16.1.1"):
             run.return_value.returncode = 0
-            manager.speedtest(networks, 4, 40, str(manager.ROOT))
+            manager.speedtest(networks, 4, manager.defaults(), str(manager.ROOT))
         args = run.call_args.args[0]
         self.assertNotIn("-url", args)
 
@@ -119,7 +120,7 @@ class CloudflareManagerTest(unittest.TestCase):
         results = []
         with patch.object(manager, "CFST", str(binary)):
             worker = threading.Thread(target=lambda: results.append(
-                manager.speedtest(networks, 4, 1, str(manager.ROOT))))
+                manager.speedtest(networks, 4, {**manager.defaults(), "threads": 1}, str(manager.ROOT))))
             worker.start()
             deadline = time.monotonic() + 2
             while "measuring IPv4" not in manager.read_log() and time.monotonic() < deadline:
@@ -128,6 +129,39 @@ class CloudflareManagerTest(unittest.TestCase):
             self.assertTrue(worker.is_alive())
             worker.join(timeout=2)
         self.assertEqual(results, ["104.16.1.1"])
+
+    def test_remote_runner_streams_csv_and_logs(self):
+        fake_ssh = manager.ROOT / "ssh"
+        fake_ssh.write_text("#!/usr/bin/python3\n"
+                            "import subprocess, sys\n"
+                            "command = [sys.argv[-2], sys.argv[-1]]\n"
+                            "result = subprocess.run(command, stdin=sys.stdin.buffer, "
+                            "stdout=sys.stdout.buffer, stderr=sys.stderr.buffer)\n"
+                            "sys.exit(result.returncode)\n")
+        fake_ssh.chmod(0o755)
+        fake_cfst = manager.ROOT / "cfst"
+        fake_cfst.write_text("#!/usr/bin/python3\n"
+                             "import pathlib, sys\n"
+                             "args = sys.argv\n"
+                             "assert '104.16.0.0/13' in pathlib.Path(args[args.index('-f') + 1]).read_text()\n"
+                             "pathlib.Path(args[args.index('-o') + 1]).write_text('104.16.1.2,2,2,0,10,12\\n')\n"
+                             "print('remote measurement', flush=True)\n")
+        fake_cfst.chmod(0o755)
+        key = manager.ROOT / "key"
+        key.write_text("test")
+        config = {**manager.defaults(), "test_runner": "ssh", "remote_host": "192.168.100.21",
+                  "remote_key": str(key)}
+        networks = [ipaddress.ip_network("104.16.0.0/13")]
+        with patch.dict(os.environ, {"PATH": str(manager.ROOT) + ":" + os.environ["PATH"],
+                                  "SMARTDNS_CFST_BIN": str(fake_cfst)}), \
+                patch.object(manager, "REMOTE_COMMAND", str(REMOTE)):
+            result = manager.speedtest(networks, 4, config, str(manager.ROOT))
+        self.assertEqual(result, "104.16.1.2")
+        self.assertIn("remote measurement", manager.read_log())
+
+    def test_remote_runner_config_rejects_ssh_options_as_host(self):
+        with self.assertRaisesRegex(ValueError, "Invalid remote host"):
+            manager.validate({**manager.defaults(), "test_runner": "ssh", "remote_host": "-oProxyCommand=bad"})
 
     def test_status_remains_available_during_speed_test(self):
         lock_path = manager.ROOT / "cloudflare.lock"

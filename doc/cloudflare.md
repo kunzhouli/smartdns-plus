@@ -33,5 +33,36 @@ The package downloads a pinned CloudflareSpeedTest binary at build time. Set
 `SMARTDNS_GITHUB_PROXY=https://your-proxy/` during the Debian package build if
 GitHub release downloads need a proxy.
 
+## Run the speed test from a direct-connect LXC
+
+When SmartDNS itself must use a Passwall proxy, run only CloudflareSpeedTest on a
+second LXC with a different LAN IP. Set that helper IP to **direct** in Passwall
+access control. Keep the SmartDNS LXC on its existing proxy rule. Do not add
+Cloudflare ranges to Passwall's global direct-IP list: websites such as x.com
+may share those ranges and still need the proxy.
+
+Install `/usr/lib/smartdns/cfst` and `/usr/lib/smartdns/cloudflare-cfst-remote`
+from the Debian package on the helper LXC. Give the helper a dedicated SSH user
+with access to both executable files. On the SmartDNS LXC, create an SSH key
+readable by the SmartDNS service, authorize its public key for that user, and
+pin the helper's verified SSH host key in
+`/etc/smartdns/cfst-known-hosts`. Do not store a password in Cloudflare settings.
+Install `openssh-client` on the SmartDNS LXC if `ssh` is not already present.
+The helper must have a default gateway; configure it on the LXC's virtual NIC
+in Proxmox so the route survives a restart.
+The helper's `authorized_keys` entry can use
+`restrict,command="/usr/lib/smartdns/cloudflare-cfst-remote"` before the public
+key to allow only the speed-test command. The script accepts only a validated
+thread count and a bounded IP list over SSH standard input.
+
+In **Cloudflare IP Optimization**, choose **Direct-connect SSH helper**, enter
+the helper's address, SSH user, port, and private key path, then save. The
+regular **Run speed test now** button and schedule use the helper. The
+Cloudflare IP-range API request, selected-IP validation, state, live log, and
+generated `cloudflare.conf` remain on the SmartDNS LXC. The helper receives
+only the candidate ranges and thread count and returns a CSV result. Both
+LXC containers need a working network route to each other; only the helper's
+external traffic should bypass Passwall.
+
 Data sources: [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest)
 and [Cloudflare's official IP ranges API](https://developers.cloudflare.com/api/resources/ips/).

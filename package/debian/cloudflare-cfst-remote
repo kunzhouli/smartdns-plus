@@ -1,0 +1,43 @@
+#!/bin/sh
+# Run CloudflareSpeedTest on a direct-connect helper and return its CSV on stdout.
+set -eu
+
+if [ "$#" -eq 0 ] && [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
+	case "$SSH_ORIGINAL_COMMAND" in
+		'/usr/lib/smartdns/cloudflare-cfst-remote '*)
+			set -- "${SSH_ORIGINAL_COMMAND#'/usr/lib/smartdns/cloudflare-cfst-remote '}" ;;
+	esac
+fi
+if [ "$#" -ne 1 ]; then
+	echo 'Usage: cloudflare-cfst-remote THREADS' >&2
+	exit 2
+fi
+case "$1" in
+	''|*[!0-9]*) echo 'Invalid thread count' >&2; exit 2 ;;
+esac
+if [ "$1" -lt 1 ] || [ "$1" -gt 200 ]; then
+	echo 'Invalid thread count' >&2
+	exit 2
+fi
+
+CFST_BIN=${SMARTDNS_CFST_BIN:-/usr/lib/smartdns/cfst}
+if [ ! -x "$CFST_BIN" ]; then
+	echo 'CloudflareSpeedTest binary is unavailable' >&2
+	exit 1
+fi
+
+workdir=$(mktemp -d)
+trap 'rm -rf -- "$workdir"' EXIT
+trap 'exit 1' HUP INT TERM
+head -c 65537 > "$workdir/ips.txt"
+if [ "$(wc -c < "$workdir/ips.txt")" -gt 65536 ]; then
+	echo 'IP list is too large' >&2
+	exit 1
+fi
+"$CFST_BIN" -f "$workdir/ips.txt" -o "$workdir/result.csv" -p 0 \
+	-n "$1" -t 2 -dn 5 -dt 5 -tl 1000 1>&2
+if [ ! -s "$workdir/result.csv" ] || [ "$(wc -c < "$workdir/result.csv")" -gt 1048576 ]; then
+	echo 'CloudflareSpeedTest produced no valid results' >&2
+	exit 1
+fi
+cat "$workdir/result.csv"
