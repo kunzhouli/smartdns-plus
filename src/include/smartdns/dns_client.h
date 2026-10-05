@@ -206,6 +206,8 @@ int dns_client_set_group_parallel(const char *group_name, int parallel);
 
 int dns_client_add_to_group(const char *group_name, const char *server_ip, int port, dns_server_type_t server_type,
 							struct client_dns_server_flags *flags);
+int dns_client_add_to_group_ordered(const char *group_name, const char *server_ip, int port,
+							 dns_server_type_t server_type, struct client_dns_server_flags *flags, int order);
 
 int dns_client_remove_from_group(const char *group_name, const char *server_ip, int port, dns_server_type_t server_type,
 								 struct client_dns_server_flags *flags);

@@ -31,7 +31,7 @@ void _dns_client_group_remove_all(void);
 
 struct dns_server_group *_dns_client_get_dnsserver_group(const char *group_name);
 
-int _dns_client_add_to_group(const char *group_name, struct dns_server_info *server_info);
+int _dns_client_add_to_group(const char *group_name, struct dns_server_info *server_info, int order);
 
 struct dns_server_group *_dns_client_get_group(const char *group_name);
 

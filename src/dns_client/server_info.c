@@ -503,7 +503,7 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 
 	/* exclude this server from default group */
 	if ((server_info->flags.server_flag & SERVER_FLAG_EXCLUDE_DEFAULT) == 0) {
-		if (_dns_client_add_to_group(DNS_SERVER_GROUP_DEFAULT, server_info) != 0) {
+		if (_dns_client_add_to_group(DNS_SERVER_GROUP_DEFAULT, server_info, 0) != 0) {
 			tlog(TLOG_ERROR, "add server %s to default group failed.", server_ip);
 			_dns_client_server_info_remove(server_info);
 			return -1;

@@ -10,6 +10,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import AddIcon from '@mui/icons-material/Add';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { useTranslation } from 'react-i18next';
 import { type ManagedUpstreamServer, type UpstreamConfig, smartdnsServer } from '@/lib/backend/server';
 import { useUser } from '@/hooks/use-user';
@@ -27,6 +28,13 @@ function normalizeConfig(config: UpstreamConfig): UpstreamConfig {
   const group_parallel = Object.fromEntries(Object.entries(config.group_parallel ?? {}).filter(([group]) => config.groups.includes(group))
     .map(([group, count]) => [group, Math.max(1, Math.min(count, group_order[group]?.length || 1))]));
   return { ...config, group_order, group_parallel };
+}
+
+function moveMember(config: UpstreamConfig, group: string, from: number, to: number): UpstreamConfig {
+  const order = orderedMembers(config, group);
+  order.splice(to, 0, ...order.splice(from, 1));
+  return { ...config, group_order: { ...config.group_order, [group]: order },
+    group_parallel: { ...config.group_parallel, [group]: config.group_parallel?.[group] ?? 1 } };
 }
 const groupRowSx = {
   display: 'grid',
@@ -47,6 +55,8 @@ export function UpstreamManagement(): React.JSX.Element {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [message, setMessage] = React.useState('');
+  const [draggedMember, setDraggedMember] = React.useState<{ group: string; endpoint: string } | null>(null);
+  const [dropMember, setDropMember] = React.useState<{ group: string; endpoint: string } | null>(null);
 
   React.useEffect(() => {
     void smartdnsServer.GetUpstreamConfig().then(async (result) => {
@@ -203,28 +213,50 @@ export function UpstreamManagement(): React.JSX.Element {
                     else delete group_parallel[group];
                     return { ...previous, group_parallel };
                   })} />} label={t('Query in order until an IP is found')} />
-                {count !== undefined ? <TextField size="small" type="number" label={t('Servers queried in parallel')}
+                {count === undefined ? null : <TextField size="small" type="number" label={t('Servers queried in parallel')}
                   value={count} inputProps={{ min: 1, max: members.length }} sx={{ width: 230 }}
                   helperText={t('1 means strictly sequential; larger values query batches in order.')}
                   onChange={(event) => setConfig((previous) => ({ ...previous, group_parallel: {
                     ...previous.group_parallel, [group]: Math.max(1, Math.min(members.length, Number(event.target.value) || 1)),
-                  } }))} /> : null}
+                  } }))} />}
               </Stack>
-              {members.map((endpoint, index) => <Stack key={endpoint} direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ minWidth: 25 }}>{index + 1}.</Typography>
+              {members.map((endpoint, index) => <Stack key={endpoint} direction="row" spacing={1} alignItems="center"
+                onDragOver={(event) => {
+                  if (draggedMember?.group !== group) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
+                  setDropMember({ group, endpoint });
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (draggedMember?.group === group && draggedMember.endpoint !== endpoint) {
+                    setConfig((previous) => {
+                      const from = orderedMembers(previous, group).indexOf(draggedMember.endpoint);
+                      return from === -1 ? previous : moveMember(previous, group, from, index);
+                    });
+                  }
+                  setDraggedMember(null);
+                  setDropMember(null);
+                }}
+                sx={{ borderRadius: 1, outline: dropMember?.group === group && dropMember.endpoint === endpoint && draggedMember?.endpoint !== endpoint ? '2px solid' : 'none',
+                  outlineColor: 'primary.main', opacity: draggedMember?.group === group && draggedMember.endpoint === endpoint ? 0.5 : 1 }}>
+                <IconButton size="small" draggable aria-label={`${t('Drag to reorder')} ${endpoint}`}
+                  title={t('Drag to reorder')} sx={{ cursor: 'grab' }}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', endpoint);
+                    setDraggedMember({ group, endpoint });
+                  }}
+                  onDragEnd={() => { setDraggedMember(null); setDropMember(null); }}><DragIndicatorIcon fontSize="small" /></IconButton>
+                <TextField select size="small" label={t('Priority')} value={index + 1} sx={{ minWidth: 90 }}
+                  onChange={(event) => setConfig((previous) => moveMember(previous, group, index, Number(event.target.value) - 1))}>
+                  {members.map((_, position) => <MenuItem key={position} value={position + 1}>{position + 1}</MenuItem>)}
+                </TextField>
                 <Typography variant="body2" sx={{ flex: 1, overflowWrap: 'anywhere' }}>{endpoint}</Typography>
                 <IconButton size="small" disabled={index === 0} aria-label={`${t('Move up')} ${endpoint}`}
-                  onClick={() => setConfig((previous) => {
-                    const order = orderedMembers(previous, group);
-                    [order[index - 1], order[index]] = [order[index], order[index - 1]];
-                    return { ...previous, group_order: { ...previous.group_order, [group]: order } };
-                  })}><ArrowUpwardIcon fontSize="small" /></IconButton>
+                  onClick={() => setConfig((previous) => moveMember(previous, group, index, index - 1))}><ArrowUpwardIcon fontSize="small" /></IconButton>
                 <IconButton size="small" disabled={index === members.length - 1} aria-label={`${t('Move down')} ${endpoint}`}
-                  onClick={() => setConfig((previous) => {
-                    const order = orderedMembers(previous, group);
-                    [order[index], order[index + 1]] = [order[index + 1], order[index]];
-                    return { ...previous, group_order: { ...previous.group_order, [group]: order } };
-                  })}><ArrowDownwardIcon fontSize="small" /></IconButton>
+                  onClick={() => setConfig((previous) => moveMember(previous, group, index, index + 1))}><ArrowDownwardIcon fontSize="small" /></IconButton>
               </Stack>)}
             </Stack>
           </Box>;

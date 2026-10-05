@@ -32,11 +32,11 @@ int _dns_client_add_server_pending(const char *server_ip, const char *server_hos
 								   int is_pending);
 
 int _dns_client_add_to_pending_group(const char *group_name, const char *server_ip, int port,
-									 dns_server_type_t server_type, const struct client_dns_server_flags *flags);
+									 dns_server_type_t server_type, const struct client_dns_server_flags *flags, int order);
 
 int _dns_client_add_to_group_pending(const char *group_name, const char *server_ip, int port,
 									 dns_server_type_t server_type, const struct client_dns_server_flags *flags,
-									 int is_pending);
+									 int is_pending, int order);
 
 void _dns_client_remove_all_pending_servers(void);
 

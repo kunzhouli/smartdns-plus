@@ -156,6 +156,7 @@ struct dns_server_info {
 struct dns_server_pending_group {
 	struct list_head list;
 	char group_name[DNS_GROUP_NAME_LEN];
+	int order;
 };
 
 struct dns_server_pending {
@@ -190,6 +191,7 @@ struct dns_server_pending {
 struct dns_server_group_member {
 	struct list_head list;
 	struct dns_server_info *server;
+	int order;
 };
 
 /* upstream server groups */

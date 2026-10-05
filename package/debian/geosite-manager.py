@@ -104,7 +104,10 @@ def check_data(path, rules):
 def config_text(config):
     lines = ["# Managed by geosite-manager.py; edit geosite.json through the Web UI.\n"]
     if DATA.exists():
-        for index, rule in enumerate(config["rules"]):
+        # SmartDNS replaces an earlier rule of the same type for an overlapping
+        # domain. Emit the lowest priority first so the first UI row wins.
+        for index in range(len(config["rules"]) - 1, -1, -1):
+            rule = config["rules"][index]
             name = f"geosite-{index}"
             lines.append(f"domain-set -name {name} -type geosite -site {rule['site']} -file {DATA}\n")
             option = f"-nameserver {rule['group']}" if rule["action"] == "route" else "-address #"

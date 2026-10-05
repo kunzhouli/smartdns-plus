@@ -79,7 +79,7 @@ static int _dns_client_resolv_ip_by_host(const char *host, char *ip, int ip_len)
 }
 
 int _dns_client_add_to_pending_group(const char *group_name, const char *server_ip, int port,
-									 dns_server_type_t server_type, const struct client_dns_server_flags *flags)
+									 dns_server_type_t server_type, const struct client_dns_server_flags *flags, int order)
 {
 	struct dns_server_pending *item = NULL;
 	struct dns_server_pending *tmp = NULL;
@@ -114,6 +114,7 @@ int _dns_client_add_to_pending_group(const char *group_name, const char *server_
 		goto errout;
 	}
 	safe_strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
+	group->order = order;
 
 	pthread_mutex_lock(&pending_server_mutex);
 	list_add_tail(&group->list, &pending->group_list);
@@ -298,7 +299,7 @@ static int _dns_client_pending_server_resolve(const struct dns_result *result, v
 /* add server to group */
 int _dns_client_add_to_group_pending(const char *group_name, const char *server_ip, int port,
 									 dns_server_type_t server_type, const struct client_dns_server_flags *flags,
-									 int is_pending)
+									 int is_pending, int order)
 {
 	struct dns_server_info *server_info = NULL;
 
@@ -312,10 +313,10 @@ int _dns_client_add_to_group_pending(const char *group_name, const char *server_
 			tlog(TLOG_ERROR, "add server %s:%d to group %s failed", server_ip, port, group_name);
 			return -1;
 		}
-		return _dns_client_add_to_pending_group(group_name, server_ip, port, server_type, flags);
+		return _dns_client_add_to_pending_group(group_name, server_ip, port, server_type, flags, order);
 	}
 
-	return _dns_client_add_to_group(group_name, server_info);
+	return _dns_client_add_to_group(group_name, server_info, order);
 }
 
 static int _dns_client_add_pendings(struct dns_server_pending *pending, char *ip)
@@ -341,7 +342,8 @@ static int _dns_client_add_pendings(struct dns_server_pending *pending, char *ip
 
 	list_for_each_entry_safe(group, tmp, &pending->group_list, list)
 	{
-		if (_dns_client_add_to_group_pending(group->group_name, ip, pending->port, pending->type, &pending->flags, 0) !=
+		if (_dns_client_add_to_group_pending(group->group_name, ip, pending->port, pending->type, &pending->flags, 0,
+										 group->order) !=
 			0) {
 			tlog(TLOG_WARN, "add server to group failed, skip add.");
 		}

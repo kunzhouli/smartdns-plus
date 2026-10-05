@@ -309,9 +309,8 @@ static int _smartdns_add_servers(void)
 				tlog(TLOG_ERROR, "prepare server flags failed, %s:%d", server->server, server->port);
 				return -1;
 			}
-			flags.config_order = group->server_order[j];
-
-			ret = dns_client_add_to_group(group->group_name, server->server, server->port, server->type, &flags);
+			ret = dns_client_add_to_group_ordered(group->group_name, server->server, server->port, server->type,
+										 &flags, group->server_order[j]);
 			if (ret != 0) {
 				tlog(TLOG_ERROR, "add server %s to group %s failed", server->server, group->group_name);
 				return -1;

@@ -67,7 +67,7 @@ use_default:
 }
 
 /* add server to group */
-int _dns_client_add_to_group(const char *group_name, struct dns_server_info *server_info)
+int _dns_client_add_to_group(const char *group_name, struct dns_server_info *server_info, int order)
 {
 	struct dns_server_group *group = NULL;
 	struct dns_server_group_member *group_member = NULL;
@@ -85,11 +85,12 @@ int _dns_client_add_to_group(const char *group_name, struct dns_server_info *ser
 		goto errout;
 	}
 	group_member->server = server_info;
+	group_member->order = order > 0 ? order : server_info->flags.config_order;
 	dns_client_server_info_get(server_info);
 	/* Keep configuration order even when a hostname upstream resolves later. */
 	list_for_each_entry(position, &group->head, list)
 	{
-		if (server_info->flags.config_order < position->server->flags.config_order) {
+		if (group_member->order < position->order) {
 			list_add_tail(&group_member->list, &position->list);
 			return 0;
 		}
@@ -108,7 +109,13 @@ errout:
 int dns_client_add_to_group(const char *group_name, const char *server_ip, int port, dns_server_type_t server_type,
 							struct client_dns_server_flags *flags)
 {
-	return _dns_client_add_to_group_pending(group_name, server_ip, port, server_type, flags, 1);
+	return dns_client_add_to_group_ordered(group_name, server_ip, port, server_type, flags, 0);
+}
+
+int dns_client_add_to_group_ordered(const char *group_name, const char *server_ip, int port,
+							 dns_server_type_t server_type, struct client_dns_server_flags *flags, int order)
+{
+	return _dns_client_add_to_group_pending(group_name, server_ip, port, server_type, flags, 1, order);
 }
 
 /* free group member */

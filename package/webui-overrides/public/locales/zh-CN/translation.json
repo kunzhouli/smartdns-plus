@@ -115,6 +115,8 @@
   "1 means strictly sequential; larger values query batches in order.": "设为 1 表示逐台查询；更大的值表示按顺序分批并行查询。",
   "Move up": "上移",
   "Move down": "下移",
+  "Priority": "优先级",
+  "Drag to reorder": "拖拽调整顺序",
   "Group name": "组名",
   "Bootstrap DNS (optional)": "引导解析 DNS（可选）",
   "Set a plain UDP DNS IP for each group to resolve upstream hostnames. Leave it blank to use the existing method. Example: 1.1.1.1 or 1.1.1.1:53.": "可为每个组填写普通 UDP DNS 的 IP，用来解析组内上游服务器域名；留空则沿用现有解析方式。例如 1.1.1.1 或 1.1.1.1:53。",
