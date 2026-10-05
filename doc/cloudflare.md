@@ -5,6 +5,10 @@ Cloudflare's published IP ranges. The replacement is the fastest address of the
 same family selected by CloudflareSpeedTest. Other answers are unaffected.
 SmartDNS applies this with its existing `ip-alias` rules, so an actual DNS
 answer IP must match a Cloudflare range before a replacement is made.
+Cloudflare may reject that selected IP for other hostnames with Error 1034
+(Edge IP Restricted). A successful speed test does not prove that one IP can
+serve every Cloudflare website. Leave global acceleration disabled if this
+occurs; the speed test can still run without changing DNS answers.
 
 The Debian package with Web UI includes CloudflareSpeedTest v2.3.5. In
 **Cloudflare IP Optimization**, click **Run speed test now** to run manually and
@@ -67,6 +71,31 @@ generated `cloudflare.conf` remain on the SmartDNS LXC. The helper receives
 only the candidate ranges and thread count and returns a CSV result. Both
 LXC containers need a working network route to each other; only the helper's
 external traffic should bypass Passwall.
+
+## Verified exact-host overrides
+
+For a website that needs a faster address, test a candidate against the real
+hostname from the same direct network path used by clients. Replace the
+example hostname and IP below with the pair being tested:
+
+```sh
+curl --noproxy '*' --resolve www.example.com:443:203.0.113.10 \
+  -o /dev/null -w '%{http_code} %{time_connect}\n' https://www.example.com/
+```
+
+Check that the site works and does not return Error 1034. Then put an exact
+hostname rule in `/etc/smartdns/cloudflare-verified.conf`:
+
+```text
+address /-.www.example.com/203.0.113.10
+address /-.www.example.com/-6
+```
+
+The second line leaves IPv6 answers to normal DNS. Keep the global Cloudflare
+switch off; the verified file is separate from the generated
+`cloudflare.conf`, so scheduled tests do not erase it. Restart SmartDNS after
+editing the file and compare the target hostname's A and AAAA replies with
+unrelated hostnames.
 
 Data sources: [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest)
 and [Cloudflare's official IP ranges API](https://developers.cloudflare.com/api/resources/ips/).

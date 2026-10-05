@@ -33,6 +33,9 @@ if [ "$1" = configure ]; then
 	if [ ! -e /etc/smartdns/cloudflare.conf ]; then
 		printf '%s\n' '# Managed by cloudflare-manager.py' > /etc/smartdns/cloudflare.conf
 	fi
+	if [ ! -e /etc/smartdns/cloudflare-verified.conf ]; then
+		printf '%s\n' '# Exact host overrides verified for the target website; edit manually.' > /etc/smartdns/cloudflare-verified.conf
+	fi
 	if ! grep -Eq '^conf-file[[:space:]]+/etc/smartdns/geosite.conf([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
 		printf '\nconf-file /etc/smartdns/geosite.conf\n' >> /etc/smartdns/smartdns.conf
 	fi
@@ -44,6 +47,9 @@ if [ "$1" = configure ]; then
 	fi
 	if ! grep -Eq '^conf-file[[:space:]]+/etc/smartdns/cloudflare.conf([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
 		printf 'conf-file /etc/smartdns/cloudflare.conf\n' >> /etc/smartdns/smartdns.conf
+	fi
+	if ! grep -Eq '^conf-file[[:space:]]+/etc/smartdns/cloudflare-verified.conf([[:space:]]|$)' /etc/smartdns/smartdns.conf; then
+		printf 'conf-file /etc/smartdns/cloudflare-verified.conf\n' >> /etc/smartdns/smartdns.conf
 	fi
 	if [ -e /usr/local/lib/smartdns/smartdns_ui.so ]; then
 		if ! grep -Eq '^plugin[[:space:]]+.*smartdns_ui.so([[:space:]]|$)' /etc/smartdns/smartdns.conf; then

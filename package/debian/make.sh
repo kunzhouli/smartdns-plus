@@ -120,7 +120,7 @@ EOF
 	else
 		echo "smartdns-ui plugin not found, skipping copy."
 	fi
-	printf '\n# Debian Web UI managed DNS settings\nconf-file /etc/smartdns/upstream.conf\nconf-file /etc/smartdns/geosite.conf\nconf-file /etc/smartdns/domain-routes.conf\nconf-file /etc/smartdns/cloudflare.conf\n' >> $ROOT/etc/smartdns/smartdns.conf
+	printf '\n# Debian Web UI managed DNS settings\nconf-file /etc/smartdns/upstream.conf\nconf-file /etc/smartdns/geosite.conf\nconf-file /etc/smartdns/domain-routes.conf\nconf-file /etc/smartdns/cloudflare.conf\nconf-file /etc/smartdns/cloudflare-verified.conf\n' >> $ROOT/etc/smartdns/smartdns.conf
 
 	$SMARTDNS_CP $ROOT
 	if [ $? -ne 0 ]; then

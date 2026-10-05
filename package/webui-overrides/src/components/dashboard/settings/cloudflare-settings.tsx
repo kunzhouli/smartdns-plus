@@ -86,6 +86,7 @@ export function CloudflareSettings(): React.JSX.Element {
 
   return <Stack spacing={2} sx={{ maxWidth: 750 }}>
     <Typography variant="body2">{t('When an A or AAAA answer belongs to a Cloudflare IP range, return the fastest measured IP of the same family. Other answers stay unchanged.')}</Typography>
+    <Alert severity="warning">{t('Global IP replacement can cause Cloudflare Error 1034. A speed test only validates its download host; use verified exact-host rules for other websites.')}</Alert>
     {error ? <Alert severity="error">{error}</Alert> : null}
     {message ? <Alert severity="success">{message}</Alert> : null}
     {config.cfst_available ? null : <Alert severity="warning">{t('CloudflareSpeedTest runner is unavailable.')}</Alert>}

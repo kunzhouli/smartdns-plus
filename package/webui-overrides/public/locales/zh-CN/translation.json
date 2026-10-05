@@ -195,6 +195,7 @@
   "Example: geolocation-!cn or category-ads-all@ads": "例如 geolocation-!cn 或 category-ads-all@ads",
   "Save settings before updating.": "请先保存设置，再更新数据。",
   "When an A or AAAA answer belongs to a Cloudflare IP range, return the fastest measured IP of the same family. Other answers stay unchanged.": "当 A 或 AAAA 应答落入 Cloudflare 网段时，返回同地址族测速最快的 IP；其他应答保持不变。",
+  "Global IP replacement can cause Cloudflare Error 1034. A speed test only validates its download host; use verified exact-host rules for other websites.": "全局替换 IP 可能导致 Cloudflare 错误 1034。测速只验证下载测速域名；其他网站请使用已验证的精确域名规则。",
   "CloudflareSpeedTest binary is unavailable on this server.": "服务器缺少 CloudflareSpeedTest 程序。",
   "CloudflareSpeedTest runner is unavailable.": "本机测速程序或远程 SSH 密钥不可用。",
   "Enable Cloudflare acceleration": "启用 Cloudflare 优选",
