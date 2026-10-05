@@ -28,7 +28,7 @@ if [ "$1" = configure ]; then
 		fi
 	fi
 	if [ ! -e /etc/smartdns/cloudflare.json ]; then
-		printf '%s\n' '{"enabled":false,"run_time":"03:00","interval_days":1,"ipv6_enabled":true,"threads":40}' > /etc/smartdns/cloudflare.json
+		printf '%s\n' '{"enabled":false,"schedule_enabled":false,"run_time":"03:00","interval_days":1,"ipv6_enabled":true,"threads":40}' > /etc/smartdns/cloudflare.json
 	fi
 	if [ ! -e /etc/smartdns/cloudflare.conf ]; then
 		printf '%s\n' '# Managed by cloudflare-manager.py' > /etc/smartdns/cloudflare.conf

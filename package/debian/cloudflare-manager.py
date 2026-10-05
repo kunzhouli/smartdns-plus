@@ -21,13 +21,14 @@ CONFIG = ROOT / "cloudflare.json"
 STATE = ROOT / "cloudflare-state.json"
 RULES = ROOT / "cloudflare.conf"
 LOCK = ROOT / "cloudflare.lock"
+LOG = ROOT / "cloudflare-run.log"
 CFST = os.environ.get("SMARTDNS_CFST_BIN", "/usr/lib/smartdns/cfst")
 RANGES_URL = "https://api.cloudflare.com/client/v4/ips"
 TIME = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 
 
 def defaults():
-    return {"enabled": False, "run_time": "03:00", "interval_days": 1,
+    return {"enabled": False, "schedule_enabled": False, "run_time": "03:00", "interval_days": 1,
             "ipv6_enabled": True, "threads": 40}
 
 
@@ -36,8 +37,8 @@ def validate(raw):
         raise ValueError("Expected a JSON object")
     config = defaults()
     config.update({key: raw[key] for key in config if key in raw})
-    if not isinstance(config["enabled"], bool) or not isinstance(config["ipv6_enabled"], bool):
-        raise ValueError("Enabled and IPv6 options must be booleans")
+    if any(not isinstance(config[key], bool) for key in ("enabled", "schedule_enabled", "ipv6_enabled")):
+        raise ValueError("Enabled, schedule, and IPv6 options must be booleans")
     if not isinstance(config["run_time"], str) or not TIME.fullmatch(config["run_time"]):
         raise ValueError("run_time must be HH:MM (local time)")
     if type(config["interval_days"]) is not int or not 1 <= config["interval_days"] <= 365:
@@ -76,6 +77,34 @@ def atomic_write(path, data):
 
 def save_json(path, value):
     atomic_write(path, (json.dumps(value, indent=2) + "\n").encode())
+
+
+def log_event(message):
+    with LOG.open("a", encoding="utf-8") as output:
+        output.write(f"[{dt.datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
+
+
+def read_log():
+    if not LOG.exists():
+        return ""
+    with LOG.open("rb") as source:
+        size = source.seek(0, os.SEEK_END)
+        source.seek(max(0, size - 65536))
+        return source.read().decode("utf-8", errors="replace")
+
+
+def process_alive(pid):
+    if type(pid) is not int or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        stat = Path(f"/proc/{pid}/stat")
+        fields = stat.read_text().split(") ", 1) if stat.exists() else []
+        if len(fields) == 2 and fields[1].startswith("Z"):
+            return False
+        return True
+    except OSError:
+        return False
 
 
 def read_ranges():
@@ -122,10 +151,11 @@ def speedtest(networks, family, threads, tempdir):
     input_path.write_text("\n".join(str(network) for network in networks) + "\n")
     args = [CFST, "-f", str(input_path), "-o", str(output_path), "-p", "0",
             "-n", str(threads), "-t", "2", "-dn", "5", "-dt", "5", "-tl", "1000"]
-    done = subprocess.run(args, cwd=tempdir, stdin=subprocess.DEVNULL,
-                          capture_output=True, text=True, timeout=600)
+    with LOG.open("a", encoding="utf-8") as output:
+        done = subprocess.run(args, cwd=tempdir, stdin=subprocess.DEVNULL,
+                              stdout=output, stderr=subprocess.STDOUT, timeout=600)
     if done.returncode:
-        raise ValueError((done.stderr or done.stdout or "CloudflareSpeedTest failed")[-500:])
+        raise ValueError(f"CloudflareSpeedTest exited with status {done.returncode}")
     return select_best(output_path, networks, family)
 
 
@@ -152,42 +182,59 @@ def rule_text(config, state):
 
 
 def status():
-    return {**read_config(), **read_state(), "cfst_available": os.access(CFST, os.X_OK)}
+    state = read_state()
+    state["running"] = bool(state.get("running") and process_alive(state.get("run_pid")))
+    state.pop("run_pid", None)
+    return {**read_config(), **state, "log": read_log(), "cfst_available": os.access(CFST, os.X_OK)}
 
 
 def run_test(config, state):
+    LOG.write_text("")
+    log_event("Cloudflare speed test started")
+    state["running"] = True
+    state["run_pid"] = os.getpid()
     state["last_attempt"] = int(time.time())
     save_json(STATE, state)
     errors = []
     changed = False
     try:
+        log_event("Fetching Cloudflare IP ranges")
         ranges = read_ranges()
         with tempfile.TemporaryDirectory(prefix="smartdns-cfst-") as tempdir:
             for family in (4, 6):
                 if family == 6 and not config["ipv6_enabled"]:
                     continue
                 try:
+                    log_event(f"Testing IPv{family}")
                     best = speedtest(ranges[family], family, config["threads"], tempdir)
+                    log_event(f"IPv{family} selected: {best}")
                     state[f"best_v{family}"] = best
                     state[f"ranges_v{family}"] = [str(network) for network in ranges[family]]
                     changed = True
                 except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+                    log_event(f"IPv{family} failed: {error}")
                     errors.append(f"IPv{family}: {error}")
         if not changed:
             raise ValueError("; ".join(errors) or "CloudflareSpeedTest failed")
+        atomic_write(RULES, rule_text(config, state))
         state["last_success"] = int(time.time())
         state["last_error"] = "; ".join(errors)
+        state["running"] = False
+        state.pop("run_pid", None)
         save_json(STATE, state)
-        atomic_write(RULES, rule_text(config, state))
+        log_event("Cloudflare speed test completed")
         return {"changed": True, **status()}
     except (OSError, ValueError) as error:
         state["last_error"] = str(error)
+        state["running"] = False
+        state.pop("run_pid", None)
         save_json(STATE, state)
+        log_event(f"Cloudflare speed test failed: {error}")
         raise
 
 
 def due(config, state):
-    if not config["enabled"]:
+    if not config["schedule_enabled"]:
         return False
     now = dt.datetime.now()
     hour, minute = map(int, config["run_time"].split(":"))
@@ -198,23 +245,48 @@ def due(config, state):
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ("show", "save", "run", "scheduled"):
-        raise ValueError("Usage: cloudflare-manager.py show|save|run|scheduled")
+    if len(sys.argv) != 2 or sys.argv[1] not in ("show", "save", "start", "run", "run-restart", "scheduled"):
+        raise ValueError("Usage: cloudflare-manager.py show|save|start|run|scheduled")
     ROOT.mkdir(mode=0o755, parents=True, exist_ok=True)
     if sys.argv[1] == "show":
         return status()
+    command = sys.argv[1]
     with LOCK.open("a+b") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        command = sys.argv[1]
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | (fcntl.LOCK_NB if command == "start" else 0))
+        except BlockingIOError:
+            raise ValueError("Cloudflare speed test is already running") from None
         if command == "save":
             config = validate(json.load(sys.stdin))
             atomic_write(RULES, rule_text(config, read_state()))
             save_json(CONFIG, config)
             return {"changed": True, **status()}
         config, state = read_config(), read_state()
+        if command == "start":
+            if state.get("running") and process_alive(state.get("run_pid")):
+                raise ValueError("Cloudflare speed test is already running")
+            if not os.access(CFST, os.X_OK):
+                raise ValueError("CloudflareSpeedTest binary is unavailable")
+            child = subprocess.Popen([sys.executable, __file__, "run-restart"],
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL, start_new_session=True)
+            state["running"] = True
+            state["run_pid"] = child.pid
+            save_json(STATE, state)
+            return status()
         if command == "scheduled" and not due(config, state):
             return {"changed": False, **status()}
-        return run_test(config, state)
+        result = run_test(config, state)
+        if command == "run-restart" and config["enabled"]:
+            log_event("Reloading SmartDNS to apply Cloudflare rules")
+            try:
+                restart = subprocess.run(["/bin/systemctl", "try-restart", "smartdns.service"],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+                if restart.returncode:
+                    log_event(f"SmartDNS restart failed with status {restart.returncode}")
+            except (OSError, subprocess.TimeoutExpired) as error:
+                log_event(f"SmartDNS restart failed: {error}")
+        return result
 
 
 if __name__ == "__main__":

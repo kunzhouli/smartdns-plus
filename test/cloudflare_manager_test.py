@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -25,7 +26,8 @@ class CloudflareManagerTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
         names = {"ROOT": root, "CONFIG": root / "cloudflare.json",
-                 "STATE": root / "cloudflare-state.json", "RULES": root / "cloudflare.conf"}
+                 "STATE": root / "cloudflare-state.json", "RULES": root / "cloudflare.conf",
+                 "LOCK": root / "cloudflare.lock", "LOG": root / "cloudflare-run.log"}
         for key, value in names.items():
             original = getattr(manager, key)
             setattr(manager, key, value)
@@ -49,6 +51,7 @@ class CloudflareManagerTest(unittest.TestCase):
                 manager.run_test(config, manager.read_state())
         self.assertEqual(manager.RULES.read_text(), rules)
         self.assertEqual(manager.read_state()["best_v4"], "104.16.1.1")
+        self.assertIn("Cloudflare speed test failed: download failed", manager.read_log())
 
     def test_result_must_be_fast_and_in_cloudflare_range(self):
         result = manager.ROOT / "result.csv"
@@ -66,12 +69,34 @@ class CloudflareManagerTest(unittest.TestCase):
                                                                "ranges_v4": ["104.16.0.0/13"]}).decode())
         config["enabled"] = True
         config["run_time"] = "00:00"
+        self.assertFalse(manager.due(config, {}))
+        config["schedule_enabled"] = True
+        self.assertTrue(manager.due(config, {}))
+        config["enabled"] = False
         self.assertTrue(manager.due(config, {}))
         self.assertFalse(manager.due(config, {"last_attempt": int(time.time())}))
 
+    def test_manual_start_does_not_enable_schedule(self):
+        config = manager.defaults()
+        manager.save_json(manager.CONFIG, config)
+        binary = manager.ROOT / "cfst"
+        binary.write_text("#!/bin/sh\n")
+        binary.chmod(0o755)
+        with patch.object(manager, "CFST", str(binary)), \
+                patch.object(manager.subprocess, "Popen") as launch:
+            launch.return_value.pid = os.getpid()
+            with patch.object(sys, "argv", [str(SOURCE), "start"]):
+                result = manager.main()
+        self.assertTrue(result["running"])
+        self.assertFalse(manager.read_config()["enabled"])
+        self.assertFalse(manager.read_config()["schedule_enabled"])
+        self.assertEqual(launch.call_args.args[0][-1], "run-restart")
+
     def test_legacy_download_url_is_ignored(self):
-        config = manager.validate({**manager.defaults(), "test_url": "https://old.invalid/download"})
+        legacy = {key: value for key, value in manager.defaults().items() if key != "schedule_enabled"}
+        config = manager.validate({**legacy, "test_url": "https://old.invalid/download"})
         self.assertNotIn("test_url", config)
+        self.assertFalse(config["schedule_enabled"])
 
     def test_speedtest_uses_bundled_default_download_url(self):
         networks = [ipaddress.ip_network("104.16.0.0/13")]
@@ -81,6 +106,28 @@ class CloudflareManagerTest(unittest.TestCase):
             manager.speedtest(networks, 4, 40, str(manager.ROOT))
         args = run.call_args.args[0]
         self.assertNotIn("-url", args)
+
+    def test_speedtest_output_is_visible_before_completion(self):
+        binary = manager.ROOT / "fake-cfst"
+        binary.write_text("#!/usr/bin/python3\n"
+                          "import pathlib, sys, time\n"
+                          "print('measuring IPv4', flush=True)\n"
+                          "time.sleep(0.5)\n"
+                          "pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('104.16.1.1,2,2,0,10,12\\n')\n")
+        binary.chmod(0o755)
+        networks = [ipaddress.ip_network("104.16.0.0/13")]
+        results = []
+        with patch.object(manager, "CFST", str(binary)):
+            worker = threading.Thread(target=lambda: results.append(
+                manager.speedtest(networks, 4, 1, str(manager.ROOT))))
+            worker.start()
+            deadline = time.monotonic() + 2
+            while "measuring IPv4" not in manager.read_log() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertIn("measuring IPv4", manager.read_log())
+            self.assertTrue(worker.is_alive())
+            worker.join(timeout=2)
+        self.assertEqual(results, ["104.16.1.1"])
 
     def test_status_remains_available_during_speed_test(self):
         lock_path = manager.ROOT / "cloudflare.lock"

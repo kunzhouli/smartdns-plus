@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
 result=$(/usr/lib/smartdns/cloudflare-manager.py scheduled)
-if [ "$(printf '%s' "$result" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["changed"])')" = True ]; then
+if [ "$(printf '%s' "$result" | /usr/bin/python3 -c 'import json,sys; data=json.load(sys.stdin); print(data["changed"] and data["enabled"])')" = True ]; then
 	/bin/systemctl try-restart smartdns.service
 fi

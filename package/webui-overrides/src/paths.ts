@@ -6,6 +6,7 @@ export const paths = {
     queryLog: '/dashboard/query-log',
     upstreamServers: '/dashboard/upstream-servers',
     rules: '/dashboard/rules',
+    cloudflare: '/dashboard/cloudflare',
     clients: '/dashboard/clients',
     settings: '/dashboard/settings',
     log: '/dashboard/log',

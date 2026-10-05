@@ -34,6 +34,7 @@ export interface DomainRoutesConfig {
 
 export interface CloudflareConfig {
     enabled: boolean;
+    schedule_enabled: boolean;
     run_time: string;
     interval_days: number;
     ipv6_enabled: boolean;
@@ -44,6 +45,8 @@ export interface CloudflareConfig {
     last_success?: number;
     last_error?: string;
     cfst_available?: boolean;
+    running?: boolean;
+    log?: string;
 }
 
 export interface ManagedUpstreamServer {

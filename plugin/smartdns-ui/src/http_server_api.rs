@@ -354,8 +354,7 @@ impl API {
     async fn api_cloudflare_run(
         _this: Arc<HttpServer>, _param: APIRouteParam, _req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
-        let result = API::run_manager("/usr/lib/smartdns/cloudflare-manager.py", "run", None).await?;
-        Plugin::smartdns_restart();
+        let result = API::run_manager("/usr/lib/smartdns/cloudflare-manager.py", "start", None).await?;
         API::response_build(StatusCode::OK, result)
     }
 
